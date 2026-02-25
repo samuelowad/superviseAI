@@ -635,112 +635,546 @@ JWT payload:
 
 ---
 
----
-
 # PHASE 2 — Student Core Experience
 
-Pages:
+_(Thesis Workspace-Centric Architecture)_
 
-5. Student Dashboard
+## 🎯 Goal
 
-Layout:
-Sidebar:
+Deliver a cohesive, premium-feeling thesis management workspace where:
 
-- Dashboard
+- Student manages exactly **one thesis**
+- All uploads, analysis, diffing, and coaching happen inside one unified screen
+- Clear status handoff exists between student and professor
+- AI feels embedded, not bolted-on
+
+---
+
+# 🧱 Core Concept: Thesis Workspace
+
+Students do not navigate a complex dashboard.
+
+Instead:
+
+- `/student` → redirects to Thesis Workspace
+- If no thesis → show "Create Thesis Proposal"
+- If thesis exists → open Thesis Workspace
+
+This keeps product focused and realistic.
+
+---
+
+# 2.1 Student Layout Structure
+
+## Sidebar (Persistent)
+
+- Thesis (Workspace Home)
 - Submissions
 - Mock Viva
 - History
 - Settings
 
-Main:
+Minimal, clean, icon + label.
 
-- Thesis Progress Score (large)
-- Citation Health
-- Plagiarism Score (badge)
-- Latest Feedback
-- Upcoming Milestone
-- Start Mock Viva button
-
-Backend:
-
-- submissions
-- thesis_analysis
-- citation_reports
-- plagiarism_reports
+No clutter.
 
 ---
 
-6. Submit Thesis Page
+# 2.2 Thesis Workspace (Primary Screen)
 
-- Drag & drop upload
-- Version detection
-- Processing state screen
+## Header Section
 
-Backend:
-
-- MinIO storage
-- Text extraction
-- Analysis pipeline
+- Thesis Title
+- Supervisor Name + Status badge
+- Status Badge (Draft / Supervised / Awaiting Review / Returned / Completed)
+- Actions:
+  - Upload New Version
+  - Send to Supervisor (only if allowed)
+  - Start CoachAI
 
 ---
 
-7. Submission Results Page
+## Main Panel Layout
 
-- Structured report
-- Gap analysis
-- Version comparison
+### Top Section (Hero Metrics)
+
+Large, clean cards:
+
+1. **Thesis Progress Score** (dominant card)
+
+- Big % value
+- Trend arrow vs last submission
+- Micro-text: “+4% improvement from previous draft”
+
+2. Citation Health
+
+- Score + number of issues
+
+3. Plagiarism Score
+
+- Badge style (Green / Yellow / Red)
+- % similarity
+
+4. Milestone & Deadline
+
+- Next milestone
+- Due in X days
+
+All cards use soft shadows, rounded edges, subtle green accents.
+
+---
+
+## Central Intelligence Panel
+
+Dynamic depending on submission version.
+
+---
+
+### First Submission Behavior
+
+Instead of PDF diff:
+
+Show:
+
+### Abstract Alignment Analysis
+
+Sections:
+
+- On Track vs Abstract (summary verdict)
+- Key Topic Coverage
+- Missing Core Sections
+- Structural Readiness
+
+This makes first upload meaningful.
+
+---
+
+### Version 2+ Behavior
+
+Primary focus becomes:
+
+### Version Comparison
+
+Top section:
+
+- Summary of changes:
+  - X additions
+  - Y deletions
+  - Z major edits
+
+- Gap closure summary:
+  - 3 gaps resolved
+  - 2 still open
+
+Below:
+
+### Split View Diff Screen
+
+Left: Previous version text
+Right: Current version text
+
+Color coding:
+
+- Green = additions
+- Red = removals
+
+Tabs:
+
+- Text Diff (default)
+- PDF View (with jump-to-change sidebar)
+
+---
+
+## Right Side Collapsible Panel
+
+Collapsible accordion cards:
+
+1. Plagiarism Report
+
+- % similarity
+- Flagged sections list
+
+2. Citation & Reference Validator
+
+- Missing citations
+- Broken references
+- Formatting errors
+
+3. Milestone Tracker
+
+- Timeline view
+- Status markers
+
+4. Latest Professor Feedback
+
+- Rich text display
+- Timestamp
+- Option to respond
+
+---
+
+# 2.3 Submit Thesis Flow (Upload)
+
+Triggered from:
+
+“Upload New Version” button
+
+---
+
+## Step 1 — Drag & Drop Modal
+
+- Drag & drop zone
+- Supported formats: PDF / DOCX
+- File size limit
+- “Continue” button
+
+---
+
+## Step 2 — Version Detection
+
+System auto-detects:
+
+- Previous version exists? → increment version_number
+- No previous version? → mark as first submission
+
+---
+
+## Step 3 — Processing Screen
+
+Full-page state:
+
+- File uploaded
+- Extracting text
+- Running thesis analysis
+- Running citation validation
+- Running plagiarism check
+
+Animated progress timeline with checkmarks.
+
+Feels like a real system.
+
+---
+
+## Backend (Submission Pipeline)
+
+On upload:
+
+1. Store file in MinIO:
+
+- `theses/{thesisId}/{version}.pdf`
+
+2. Extract text (pdf-parse / mammoth)
+
+3. Save submission record:
+
+- thesis_id
+- version_number
+- extracted_text
+- status = processing
+
+4. Run analysis pipeline (parallel):
+
+- Thesis analysis (GPT)
 - Citation report
 - Plagiarism report
-- AI feedback section
+- Diff (if version > 1)
+
+5. Update submission status = complete
 
 ---
 
-8. Mock Viva Page
+# 2.4 Submission Results Page
 
-- Chat layout
-- Voice interaction (optional)
-- Examiner style UI
-- Session summary at end
+Not separate page — integrated into Thesis Workspace.
 
-Backend:
+New submission becomes active view.
 
-- coaching_sessions
-- intent guard
-- GPT call
+Structured sections:
+
+- Overview
+- Gap Analysis
+- Version Comparison
+- Citation Report
+- Plagiarism Report
+- AI Feedback
+
+Everything collapsible.
+
+---
+
+# 2.5 Mock Viva Page
+
+Route: `/student/mock-viva`
+
+## Layout
+
+Examiner-style interface.
+
+Top:
+
+- Session title
+- Progress indicator (Question 3/10)
+
+Main:
+
+- Chat window (large, centered)
+- User answer input (text + optional mic)
+
+Optional:
+
+- Voice input (Speech-to-Text)
+- Text-to-Speech examiner voice
+
+---
+
+## End of Session
+
+Summary Screen:
+
+- Confidence Score
+- Weak Topics
+- Recommended Improvements
+- Save session button
+
+---
+
+## Backend
+
+coaching_sessions table:
+
+- id
+- thesis_id
+- transcript
+- readiness_score
+- created_at
+
+Flow:
+
+- Intent guard prevents irrelevant prompts
+- GPT generates examiner-style questions
+- System logs conversation
+- Generates structured summary at end
 
 ---
 
 # PHASE 3 — Professor Experience (High Impact)
 
-9. Professor Dashboard
+This phase wins hackathons.
 
-This is critical for hackathon scoring.
-
-Layout:
-
-- Cohort overview
-- Student list with risk indicators
-- Progress trend chart
-- At-risk alerts
-- Recent submissions
-
-Backend:
-
-- cohorts
-- enrollments
-- aggregated analytics
+It proves scalability and institutional readiness.
 
 ---
 
-10. Student Detail (Professor View)
+# 3.1 Professor Dashboard
 
-- Progress over time
-- Gap highlights
-- Plagiarism history
+Route: `/professor`
+
+## Layout
+
+Sidebar:
+
+- Dashboard
+- Students
+- Cohorts
+- Analytics
+- Settings
+
+Main Content:
+
+---
+
+## Top Section — Cohort Overview
+
+Metrics:
+
+- Total Students
+- Active Theses
+- Awaiting Review
+- At-Risk Count
+
+---
+
+## Student List Table
+
+Columns:
+
+- Student Name
+- Thesis Title
+- Progress Score
+- Trend Arrow
+- Plagiarism Indicator
+- Last Submission Date
+- Status Badge
+- Risk Indicator (colored dot)
+
+Risk based on:
+
+- Low progress score
+- Declining trend
+- High similarity
+- Missed milestone
+
+---
+
+## Charts Section
+
+- Progress trend chart (line)
+- Submission activity timeline
+- Risk distribution pie
+
+Clean, minimal, professional.
+
+---
+
+# 3.2 Student Detail (Professor View)
+
+Route: `/professor/student/:id`
+
+Same Thesis Workspace layout as student, but:
+
+---
+
+## Additional Professor Controls
+
+Right Panel includes:
+
+- AI Suggested Feedback (editable text area)
+- Write Manual Feedback
+- Buttons:
+  - Return to Student
+  - Request Revisions
+  - Approve Milestone
+  - Mark Complete
+
+---
+
+## Progress Over Time
+
+Graph:
+
+- Version number vs Progress score
+
+---
+
+## Plagiarism History
+
+Table:
+
+- Version
+- Similarity %
+- Trend
+
+---
+
+## Version Timeline
+
+Vertical timeline:
+
+- V1 uploaded
+- V2 uploaded
+- Sent to professor
+- Feedback returned
+- etc.
+
+---
+
+## Coach Readiness Score
+
+If student used Mock Viva:
+
+- Latest readiness score
+- Trend over sessions
+- Weak areas
+
+---
+
+# Backend for Professor Phase
+
+Add:
+
+cohorts
+
+- id
+- name
+- professor_id
+
+enrollments
+
+- cohort_id
+- student_id
+
+aggregated analytics:
+
+- computed on query
+- no need for separate table
+
+Professor only sees:
+
+- Students assigned to them
+- Theses supervised by them
+
+---
+
+# State Machine (Critical for Both Roles)
+
+Submission-level:
+
+- draft
+- processing
+- complete
+
+Thesis-level:
+
+- draft
+- supervised
+- submitted_to_prof
+- returned_to_student
+- completed
+
+Student can:
+
+- Upload
+- Send to professor
+
+Professor can:
+
+- Return with feedback
+- Mark complete
+
+---
+
+# Final Architectural Summary
+
+Student Core:
+
+- Thesis Workspace
+- Submission pipeline
+- Abstract alignment (first submission)
+- Diff (version 2+)
+- Collapsible analysis panels
+- CoachAI integrated
+
+Professor:
+
+- Analytics-first dashboard
+- Risk indicators
+- Review + feedback workflow
 - Version timeline
-- Coach readiness score
+- Progress trends
+
+Admin (later phase):
+
+- Oversight only
 
 ---
+
+If you want next, I can:
+
+- Convert this into a strict API contract document
+- Or rewrite it as a DB schema + endpoint matrix
+- Or turn this into frontend component architecture (React folder structure + component tree)
+
+```
 
 # PHASE 4 — Polish & Real-Time
 
@@ -776,3 +1210,4 @@ Professor analytics + cohort logic
 
 Phase 4:
 Real-time updates + refinement
+```
