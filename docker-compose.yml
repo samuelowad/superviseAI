@@ -1,0 +1,89 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: superviseai-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: superviseai
+      POSTGRES_USER: supervise
+      POSTGRES_PASSWORD: supervise
+    ports:
+      - '5433:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U supervise -d superviseai']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:RELEASE.2024-09-13T20-26-02Z
+    container_name: superviseai-minio
+    restart: unless-stopped
+    command: server /data --console-address ':9001'
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    volumes:
+      - minio_data:/data
+
+  minio-init:
+    image: minio/mc:RELEASE.2024-09-16T17-43-14Z
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 minioadmin minioadmin; do sleep 2; done;
+      mc mb --ignore-existing local/theses;
+      mc anonymous set private local/theses;
+      exit 0;
+      "
+
+  nestjs-api:
+    build:
+      context: .
+      dockerfile: packages/api/Dockerfile
+      target: builder
+    container_name: superviseai-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      NODE_ENV: development
+      HUSKY: 0
+      PORT: 3000
+      DATABASE_URL: postgresql://supervise:supervise@postgres:5432/superviseai
+      JWT_SECRET: change_this_secret
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_USE_SSL: 'false'
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: theses
+      AZURE_OPENAI_ENDPOINT: ''
+      AZURE_OPENAI_KEY: ''
+      AZURE_OPENAI_DEPLOYMENT: ''
+      AZURE_SPEECH_KEY: ''
+      AZURE_SPEECH_REGION: ''
+      AZURE_COGNITIVE_KEY: ''
+      AZURE_COGNITIVE_ENDPOINT: ''
+      COPYLEAKS_EMAIL: ''
+      COPYLEAKS_API_KEY: ''
+    command: sh -c "npm install && npm run start:dev -w @supervise-ai/api"
+    volumes:
+      - ./:/app
+      - api_node_modules:/app/node_modules
+    ports:
+      - '3000:3000'
+
+volumes:
+  postgres_data:
+  minio_data:
+  api_node_modules:
