@@ -12,6 +12,7 @@
     "infra:build": "docker compose up --build -d",
     "infra:up": "docker compose up -d",
     "infra:down": "docker compose down",
+    "db:seed": "npm run seed -w @supervise-ai/api",
     "build": "npm run build -ws --if-present",
     "typecheck": "npm run typecheck -ws --if-present",
     "lint": "npm run lint -ws --if-present",
@@ -26,7 +27,7 @@
       "prettier --write"
     ],
     "packages/**/*.{ts,tsx,js,jsx}": [
-      "eslint --max-warnings=0 --fix"
+      "eslint --fix"
     ]
   },
   "devDependencies": {

@@ -8,16 +8,17 @@ import {
 import { Reflector } from '@nestjs/core';
 
 import { ROLES_KEY } from '../decorators/roles.decorator';
+import { UserRole } from '../../users/user.entity';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
   constructor(private readonly reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
-    const requiredRoles = this.reflector.getAllAndOverride<Array<'student' | 'professor'>>(
-      ROLES_KEY,
-      [context.getHandler(), context.getClass()],
-    );
+    const requiredRoles = this.reflector.getAllAndOverride<UserRole[]>(ROLES_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
 
     if (!requiredRoles || requiredRoles.length === 0) {
       return true;
@@ -28,7 +29,7 @@ export class RolesGuard implements CanActivate {
       throw new UnauthorizedException('Missing authenticated user context.');
     }
 
-    if (!requiredRoles.includes(request.user.role as 'student' | 'professor')) {
+    if (!requiredRoles.includes(request.user.role as UserRole)) {
       throw new ForbiddenException('Insufficient role.');
     }
 

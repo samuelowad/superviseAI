@@ -8,6 +8,7 @@
     "start": "node dist/main.js",
     "start:dev": "npm run dev",
     "start:prod": "npm run start",
+    "seed": "node scripts/seed.cjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint \"src/**/*.ts\"",
     "test": "echo \"No API tests yet\""

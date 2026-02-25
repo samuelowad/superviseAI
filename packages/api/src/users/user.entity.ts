@@ -3,6 +3,7 @@ import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn } from 'typeor
 export enum UserRole {
   STUDENT = 'student',
   PROFESSOR = 'professor',
+  ADMIN = 'admin',
 }
 
 @Entity('users')
@@ -21,6 +22,12 @@ export class User {
 
   @Column({ type: 'enum', enum: UserRole })
   role!: UserRole;
+
+  @Column({ name: 'is_active', default: true })
+  isActive!: boolean;
+
+  @Column({ name: 'is_verified', default: false })
+  isVerified!: boolean;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;

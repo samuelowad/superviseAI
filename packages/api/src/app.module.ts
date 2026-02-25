@@ -9,6 +9,7 @@ import { CoachingModule } from './coaching/coaching.module';
 import { RolesGuard } from './common/guards/roles.guard';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { MailModule } from './mail/mail.module';
 import { MilestonesModule } from './milestones/milestones.module';
 import { StorageModule } from './storage/storage.module';
 import { SubmissionsModule } from './submissions/submissions.module';
@@ -26,6 +27,7 @@ import { UsersModule } from './users/users.module';
     }),
     UsersModule,
     AuthModule,
+    MailModule,
     StorageModule,
     SubmissionsModule,
     AnalysisModule,

@@ -9,6 +9,8 @@ interface CreateUserInput {
   passwordHash: string;
   fullName: string;
   role: UserRole;
+  isActive: boolean;
+  isVerified: boolean;
 }
 
 @Injectable()
@@ -37,5 +39,9 @@ export class UsersService {
 
   async findById(id: string): Promise<User | null> {
     return this.usersRepository.findOne({ where: { id } });
+  }
+
+  async updatePasswordHash(id: string, passwordHash: string): Promise<void> {
+    await this.usersRepository.update({ id }, { passwordHash });
   }
 }

@@ -61,6 +61,9 @@ services:
       PORT: 3000
       DATABASE_URL: postgresql://supervise:supervise@postgres:5432/superviseai
       JWT_SECRET: change_this_secret
+      FRONTEND_URL: http://localhost:5173
+      CORS_ORIGIN: http://localhost:5173
+      RESET_TOKEN_TTL_MINUTES: 30
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
       MINIO_USE_SSL: 'false'
