@@ -1,0 +1,1324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>SuperviseAI — Architecture</title>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;600;700&display=swap" rel="stylesheet"/>
+    <style>
+        :root {
+            --bg: #0B0F1A;
+            --surface: #111827;
+            --surface2: #1A2235;
+            --border: #1E3050;
+            --blue: #3B82F6;
+            --blue-dim: #1D3461;
+            --green: #10B981;
+            --green-dim: #0D3B2E;
+            --orange: #F59E0B;
+            --orange-dim: #3D2A00;
+            --purple: #8B5CF6;
+            --purple-dim: #2D1B5E;
+            --red: #EF4444;
+            --red-dim: #3B0F0F;
+            --cyan: #06B6D4;
+            --cyan-dim: #0C2D38;
+            --text: #E2E8F0;
+            --text-dim: #64748B;
+            --text-mid: #94A3B8;
+            --mono: 'IBM Plex Mono', monospace;
+            --sans: 'IBM Plex Sans', sans-serif;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--sans);
+            min-height: 100vh;
+            padding: 40px 24px 80px;
+        }
+
+        /* HEADER */
+        .header {
+            text-align: center;
+            margin-bottom: 60px;
+            position: relative;
+        }
+        .header::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 600px;
+            height: 200px;
+            background: radial-gradient(ellipse, rgba(59,130,246,0.08) 0%, transparent 70%);
+            pointer-events: none;
+        }
+        .header-tag {
+            display: inline-block;
+            font-family: var(--mono);
+            font-size: 11px;
+            color: var(--blue);
+            border: 1px solid var(--blue-dim);
+            padding: 4px 12px;
+            border-radius: 2px;
+            margin-bottom: 16px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+        .header h1 {
+            font-size: 42px;
+            font-weight: 700;
+            letter-spacing: -1px;
+            margin-bottom: 8px;
+        }
+        .header h1 span { color: var(--blue); }
+        .header p {
+            font-size: 14px;
+            color: var(--text-dim);
+            font-family: var(--mono);
+        }
+
+        /* NAV TABS */
+        .tabs {
+            display: flex;
+            gap: 4px;
+            justify-content: center;
+            margin-bottom: 48px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 4px;
+            max-width: 800px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        .tab {
+            flex: 1;
+            padding: 10px 16px;
+            border-radius: 4px;
+            border: none;
+            background: transparent;
+            color: var(--text-dim);
+            font-family: var(--mono);
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-align: center;
+            letter-spacing: 0.5px;
+        }
+        .tab:hover { color: var(--text); background: var(--surface2); }
+        .tab.active { background: var(--blue); color: white; font-weight: 600; }
+
+        /* SECTIONS */
+        .section { display: none; }
+        .section.active { display: block; }
+
+        /* CARDS */
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 24px;
+            margin-bottom: 20px;
+        }
+        .card-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        .card-icon {
+            width: 36px; height: 36px;
+            border-radius: 6px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 16px;
+            flex-shrink: 0;
+        }
+        .card-title { font-size: 16px; font-weight: 600; }
+        .card-subtitle { font-size: 12px; color: var(--text-dim); font-family: var(--mono); margin-top: 2px; }
+
+        /* GRID */
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+        .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+
+        /* LAYER BOXES */
+        .layer {
+            border-radius: 6px;
+            padding: 20px;
+            border: 1px solid;
+            margin-bottom: 12px;
+        }
+        .layer-title {
+            font-family: var(--mono);
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .layer-title::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: currentColor;
+            opacity: 0.2;
+        }
+
+        /* TECH PILLS */
+        .pills { display: flex; flex-wrap: wrap; gap: 8px; }
+        .pill {
+            padding: 4px 12px;
+            border-radius: 3px;
+            font-family: var(--mono);
+            font-size: 11px;
+            font-weight: 600;
+            border: 1px solid;
+        }
+
+        /* FLOW DIAGRAM */
+        .flow { display: flex; flex-direction: column; gap: 0; }
+        .flow-step {
+            display: flex;
+            align-items: flex-start;
+            gap: 16px;
+            position: relative;
+        }
+        .flow-step:not(:last-child)::after {
+            content: '';
+            position: absolute;
+            left: 17px;
+            top: 36px;
+            width: 2px;
+            height: calc(100% - 16px);
+            background: var(--border);
+        }
+        .flow-num {
+            width: 36px; height: 36px;
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-family: var(--mono);
+            font-size: 13px;
+            font-weight: 700;
+            flex-shrink: 0;
+            position: relative;
+            z-index: 1;
+        }
+        .flow-content {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 14px 18px;
+            flex: 1;
+            margin-bottom: 12px;
+        }
+        .flow-content-title {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        .flow-content-detail {
+            font-size: 12px;
+            color: var(--text-mid);
+            font-family: var(--mono);
+            line-height: 1.6;
+        }
+        .flow-branch {
+            display: flex;
+            gap: 12px;
+            margin-left: 52px;
+            margin-bottom: 12px;
+        }
+        .flow-branch-item {
+            flex: 1;
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 12px 14px;
+            position: relative;
+        }
+        .flow-branch-item::before {
+            content: '⟶';
+            position: absolute;
+            top: -18px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 12px;
+            color: var(--text-dim);
+        }
+        .branch-label {
+            font-family: var(--mono);
+            font-size: 10px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            margin-bottom: 6px;
+        }
+        .branch-detail {
+            font-size: 12px;
+            color: var(--text-mid);
+        }
+
+        /* DB TABLE */
+        .db-table {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            overflow: hidden;
+            margin-bottom: 16px;
+        }
+        .db-table-header {
+            padding: 10px 16px;
+            font-family: var(--mono);
+            font-size: 12px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border-bottom: 1px solid var(--border);
+        }
+        .db-table-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        .db-field {
+            display: grid;
+            grid-template-columns: 180px 120px 1fr;
+            gap: 0;
+            padding: 7px 16px;
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+            font-family: var(--mono);
+            font-size: 11px;
+        }
+        .db-field:last-child { border-bottom: none; }
+        .db-field:hover { background: rgba(255,255,255,0.02); }
+        .db-field-name { color: var(--cyan); }
+        .db-field-type { color: var(--orange); }
+        .db-field-note { color: var(--text-dim); }
+        .db-pk { color: var(--yellow); }
+
+        /* ROUTE TABLE */
+        .route-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
+        .route-table th {
+            text-align: left;
+            padding: 10px 14px;
+            background: var(--surface2);
+            color: var(--text-dim);
+            font-size: 10px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            border-bottom: 1px solid var(--border);
+        }
+        .route-table td {
+            padding: 9px 14px;
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+            vertical-align: top;
+        }
+        .route-table tr:hover td { background: rgba(255,255,255,0.02); }
+        .method {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+        }
+        .GET { background: rgba(16,185,129,0.15); color: var(--green); }
+        .POST { background: rgba(59,130,246,0.15); color: var(--blue); }
+        .PATCH { background: rgba(245,158,11,0.15); color: var(--orange); }
+        .DELETE { background: rgba(239,68,68,0.15); color: var(--red); }
+
+        /* FOLDER TREE */
+        .tree { font-family: var(--mono); font-size: 12px; line-height: 2; }
+        .tree-line { display: flex; align-items: center; gap: 8px; }
+        .tree-indent { padding-left: 20px; border-left: 1px solid var(--border); margin-left: 8px; }
+        .tree-file { color: var(--text-mid); }
+        .tree-folder { color: var(--blue); font-weight: 600; }
+        .tree-note { color: var(--text-dim); font-size: 10px; margin-left: 8px; }
+
+        /* SECTION TITLE */
+        .section-title {
+            font-size: 22px;
+            font-weight: 700;
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .section-title::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: var(--border);
+        }
+        .section-desc {
+            font-size: 13px;
+            color: var(--text-dim);
+            margin-bottom: 28px;
+            font-family: var(--mono);
+        }
+
+        /* BADGES */
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 3px 10px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-family: var(--mono);
+            font-weight: 600;
+        }
+
+        /* RELATION LINE */
+        .relation {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-family: var(--mono);
+            font-size: 11px;
+            color: var(--text-dim);
+            margin: 4px 0;
+        }
+        .relation-arrow { color: var(--blue); font-size: 14px; }
+
+        /* SCROLLBAR */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: var(--surface); }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+        @media (max-width: 900px) {
+            .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <div class="header-tag">Technical Architecture</div>
+    <h1><span>Supervise</span>AI</h1>
+    <p>npm workspaces monorepo · React.js + Node.js + Supabase · Azure AI</p>
+</div>
+
+<div class="tabs" id="tabs">
+    <button class="tab active" onclick="switchTab('overview')">Overview</button>
+    <button class="tab" onclick="switchTab('monorepo')">Monorepo</button>
+    <button class="tab" onclick="switchTab('database')">Database</button>
+    <button class="tab" onclick="switchTab('api')">API Routes</button>
+    <button class="tab" onclick="switchTab('realtime')">Realtime</button>
+    <button class="tab" onclick="switchTab('frontend')">Frontend</button>
+    <button class="tab" onclick="switchTab('pipeline')">AI Pipeline</button>
+    <button class="tab" onclick="switchTab('dataflow')">Data Flow</button>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ OVERVIEW -->
+<div id="overview" class="section active">
+    <div class="section-title">System Overview</div>
+    <div class="section-desc">Four-tier web architecture. REST for data fetching. WebSocket (Socket.IO) for real-time push. Frontend never calls external APIs directly.</div>
+
+    <!-- Main layers -->
+    <div class="layer" style="border-color: #1D3461; background: rgba(59,130,246,0.04);">
+        <div class="layer-title" style="color: var(--blue)">🖥 Client Layer — React.js (Vite) · Socket.IO client for real-time progress updates</div>
+        <div class="grid-3">
+            <div>
+                <div style="font-size:12px; font-weight:600; margin-bottom:8px;">Professor App</div>
+                <div class="pills">
+                    <span class="pill" style="color:var(--blue); border-color:var(--blue-dim); background:rgba(59,130,246,0.08)">Dashboard</span>
+                    <span class="pill" style="color:var(--blue); border-color:var(--blue-dim); background:rgba(59,130,246,0.08)">Student Detail</span>
+                    <span class="pill" style="color:var(--blue); border-color:var(--blue-dim); background:rgba(59,130,246,0.08)">Analytics</span>
+                    <span class="pill" style="color:var(--blue); border-color:var(--blue-dim); background:rgba(59,130,246,0.08)">Milestones</span>
+                </div>
+            </div>
+            <div>
+                <div style="font-size:12px; font-weight:600; margin-bottom:8px;">Student App</div>
+                <div class="pills">
+                    <span class="pill" style="color:var(--green); border-color:var(--green-dim); background:rgba(16,185,129,0.08)">Home</span>
+                    <span class="pill" style="color:var(--green); border-color:var(--green-dim); background:rgba(16,185,129,0.08)">Submit Draft</span>
+                    <span class="pill" style="color:var(--green); border-color:var(--green-dim); background:rgba(16,185,129,0.08)">AI Coach</span>
+                    <span class="pill" style="color:var(--green); border-color:var(--green-dim); background:rgba(16,185,129,0.08)">History</span>
+                </div>
+            </div>
+            <div>
+                <div style="font-size:12px; font-weight:600; margin-bottom:8px;">Realtime (socket.ts)</div>
+                <div class="pills">
+                    <span class="pill" style="color:var(--cyan); border-color:var(--cyan-dim); background:rgba(6,182,212,0.08)">socket.io-client</span>
+                    <span class="pill" style="color:var(--cyan); border-color:var(--cyan-dim); background:rgba(6,182,212,0.08)">JWT handshake</span>
+                    <span class="pill" style="color:var(--cyan); border-color:var(--cyan-dim); background:rgba(6,182,212,0.08)">auto-reconnect</span>
+                    <span class="pill" style="color:var(--cyan); border-color:var(--cyan-dim); background:rgba(6,182,212,0.08)">event listeners</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div style="text-align:center; color:var(--text-dim); font-size:14px; margin: 8px 0; font-family:var(--mono);">
+        ↕ HTTPS / REST + JWT &nbsp;&nbsp;|&nbsp;&nbsp; <span style="color:var(--cyan)">⚡ WebSocket (Socket.IO) — real-time push events</span>
+    </div>
+
+    <div class="layer" style="border-color: #0D3B2E; background: rgba(16,185,129,0.04);">
+        <div class="layer-title" style="color: var(--green)">⚙️ API Layer — Node.js + Express + Realtime Gateway (Socket.IO server)</div>
+        <div class="grid-4">
+            <div>
+                <div style="font-size:11px; color:var(--text-dim); font-family:var(--mono); margin-bottom:6px;">ROUTES</div>
+                <div class="pills" style="flex-direction:column; gap:4px;">
+                    <span class="pill" style="color:var(--green); border-color:var(--green-dim); background:rgba(16,185,129,0.08)">/auth</span>
+                    <span class="pill" style="color:var(--green); border-color:var(--green-dim); background:rgba(16,185,129,0.08)">/submissions</span>
+                    <span class="pill" style="color:var(--green); border-color:var(--green-dim); background:rgba(16,185,129,0.08)">/analysis</span>
+                    <span class="pill" style="color:var(--green); border-color:var(--green-dim); background:rgba(16,185,129,0.08)">/coaching</span>
+                    <span class="pill" style="color:var(--green); border-color:var(--green-dim); background:rgba(16,185,129,0.08)">/milestones</span>
+                    <span class="pill" style="color:var(--green); border-color:var(--green-dim); background:rgba(16,185,129,0.08)">/dashboard</span>
+                    <span class="pill" style="color:var(--green); border-color:var(--green-dim); background:rgba(16,185,129,0.08)">/webhooks</span>
+                </div>
+            </div>
+            <div>
+                <div style="font-size:11px; color:var(--text-dim); font-family:var(--mono); margin-bottom:6px;">REALTIME</div>
+                <div class="pills" style="flex-direction:column; gap:4px;">
+                    <span class="pill" style="color:var(--cyan); border-color:var(--cyan-dim); background:rgba(6,182,212,0.08)">socket.ts</span>
+                    <span class="pill" style="color:var(--cyan); border-color:var(--cyan-dim); background:rgba(6,182,212,0.08)">JWT handshake</span>
+                    <span class="pill" style="color:var(--cyan); border-color:var(--cyan-dim); background:rgba(6,182,212,0.08)">user:{id} rooms</span>
+                    <span class="pill" style="color:var(--cyan); border-color:var(--cyan-dim); background:rgba(6,182,212,0.08)">professor:{id} rooms</span>
+                    <span class="pill" style="color:var(--cyan); border-color:var(--cyan-dim); background:rgba(6,182,212,0.08)">emitToUser()</span>
+                </div>
+            </div>
+            <div>
+                <div style="font-size:11px; color:var(--text-dim); font-family:var(--mono); margin-bottom:6px;">SERVICES</div>
+                <div class="pills" style="flex-direction:column; gap:4px;">
+                    <span class="pill" style="color:var(--purple); border-color:var(--purple-dim); background:rgba(139,92,246,0.08)">analysisService</span>
+                    <span class="pill" style="color:var(--purple); border-color:var(--purple-dim); background:rgba(139,92,246,0.08)">plagiarismService</span>
+                    <span class="pill" style="color:var(--purple); border-color:var(--purple-dim); background:rgba(139,92,246,0.08)">citationService</span>
+                    <span class="pill" style="color:var(--purple); border-color:var(--purple-dim); background:rgba(139,92,246,0.08)">coachingService</span>
+                    <span class="pill" style="color:var(--purple); border-color:var(--purple-dim); background:rgba(139,92,246,0.08)">fileService</span>
+                </div>
+            </div>
+            <div>
+                <div style="font-size:11px; color:var(--text-dim); font-family:var(--mono); margin-bottom:6px;">MIDDLEWARE + PARSERS</div>
+                <div class="pills" style="flex-direction:column; gap:4px;">
+                    <span class="pill" style="color:var(--orange); border-color:var(--orange-dim); background:rgba(245,158,11,0.08)">JWT Auth</span>
+                    <span class="pill" style="color:var(--orange); border-color:var(--orange-dim); background:rgba(245,158,11,0.08)">Role Guard</span>
+                    <span class="pill" style="color:var(--cyan); border-color:var(--cyan-dim); background:rgba(6,182,212,0.08)">pdf-parse</span>
+                    <span class="pill" style="color:var(--cyan); border-color:var(--cyan-dim); background:rgba(6,182,212,0.08)">mammoth.js</span>
+                    <span class="pill" style="color:var(--cyan); border-color:var(--cyan-dim); background:rgba(6,182,212,0.08)">diff-match-patch</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div style="text-align:center; color:var(--text-dim); font-size:20px; margin: 8px 0;">↕ Supabase JS Client + External API calls</div>
+
+    <div class="grid-2">
+        <div class="layer" style="border-color: #2D1B5E; background: rgba(139,92,246,0.04);">
+            <div class="layer-title" style="color: var(--purple)">🗄 Data Layer — Supabase</div>
+            <div class="pills">
+                <span class="pill" style="color:var(--purple); border-color:var(--purple-dim); background:rgba(139,92,246,0.08)">PostgreSQL DB</span>
+                <span class="pill" style="color:var(--purple); border-color:var(--purple-dim); background:rgba(139,92,246,0.08)">File Storage</span>
+                <span class="pill" style="color:var(--purple); border-color:var(--purple-dim); background:rgba(139,92,246,0.08)">Auth + JWT</span>
+                <span class="pill" style="color:var(--purple); border-color:var(--purple-dim); background:rgba(139,92,246,0.08)">Row Level Security</span>
+            </div>
+        </div>
+        <div class="layer" style="border-color: #3D2A00; background: rgba(245,158,11,0.04);">
+            <div class="layer-title" style="color: var(--orange)">🤖 External APIs</div>
+            <div class="pills">
+                <span class="pill" style="color:var(--orange); border-color:var(--orange-dim); background:rgba(245,158,11,0.08)">Azure OpenAI (GPT-4o)</span>
+                <span class="pill" style="color:var(--orange); border-color:var(--orange-dim); background:rgba(245,158,11,0.08)">Azure Speech-to-Text</span>
+                <span class="pill" style="color:var(--orange); border-color:var(--orange-dim); background:rgba(245,158,11,0.08)">Azure TTS</span>
+                <span class="pill" style="color:var(--orange); border-color:var(--orange-dim); background:rgba(245,158,11,0.08)">Azure Cognitive Svc</span>
+                <span class="pill" style="color:var(--orange); border-color:var(--orange-dim); background:rgba(245,158,11,0.08)">Copyleaks API</span>
+                <span class="pill" style="color:var(--orange); border-color:var(--orange-dim); background:rgba(245,158,11,0.08)">Semantic Scholar</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ MONOREPO -->
+<div id="monorepo" class="section">
+    <div class="section-title">Monorepo Structure</div>
+    <div class="section-desc">npm workspaces · packages/web · packages/api · packages/shared</div>
+
+    <div class="grid-2">
+        <div class="card">
+            <div class="card-header">
+                <div class="card-icon" style="background:rgba(59,130,246,0.1);">📁</div>
+                <div><div class="card-title">Full Folder Tree</div><div class="card-subtitle">Every file and folder</div></div>
+            </div>
+            <div class="tree">
+                <div class="tree-line"><span class="tree-folder">supervise-ai/</span></div>
+                <div class="tree-indent">
+                    <div class="tree-line"><span class="tree-folder">packages/</span></div>
+                    <div class="tree-indent">
+
+                        <div class="tree-line"><span class="tree-folder">web/</span><span class="tree-note">React.js (Vite) frontend</span></div>
+                        <div class="tree-indent">
+                            <div class="tree-line"><span class="tree-folder">src/</span></div>
+                            <div class="tree-indent">
+                                <div class="tree-line"><span class="tree-folder">pages/</span></div>
+                                <div class="tree-indent">
+                                    <div class="tree-line"><span class="tree-folder">auth/</span><span class="tree-note">Login.tsx, Register.tsx</span></div>
+                                    <div class="tree-line"><span class="tree-folder">professor/</span><span class="tree-note">Dashboard, StudentDetail, Analytics, Milestones</span></div>
+                                    <div class="tree-line"><span class="tree-folder">student/</span><span class="tree-note">Home, Submit, Coach, History, Citations</span></div>
+                                </div>
+                                <div class="tree-line"><span class="tree-folder">components/</span></div>
+                                <div class="tree-indent">
+                                    <div class="tree-line"><span class="tree-file">DiffViewer.tsx</span></div>
+                                    <div class="tree-line"><span class="tree-file">ProgressScore.tsx</span></div>
+                                    <div class="tree-line"><span class="tree-file">ChatInterface.tsx</span></div>
+                                    <div class="tree-line"><span class="tree-file">VoiceViva.tsx</span></div>
+                                    <div class="tree-line"><span class="tree-file">UploadZone.tsx</span></div>
+                                    <div class="tree-line"><span class="tree-file">MilestoneTimeline.tsx</span></div>
+                                    <div class="tree-line"><span class="tree-file">CitationReport.tsx</span></div>
+                                    <div class="tree-line"><span class="tree-file">PlagiarismBadge.tsx</span></div>
+                                </div>
+                                <div class="tree-line"><span class="tree-folder">lib/</span></div>
+                                <div class="tree-indent">
+                                    <div class="tree-line"><span class="tree-file">api.ts</span><span class="tree-note">Axios instance + interceptors</span></div>
+                                    <div class="tree-line"><span class="tree-file">supabase.ts</span><span class="tree-note">Supabase client + auth helpers</span></div>
+                                    <div class="tree-line"><span class="tree-file">useAuth.ts</span><span class="tree-note">Auth hook + role routing</span></div>
+                                    <div class="tree-line"><span class="tree-file">socket.ts</span><span class="tree-note">Socket.IO client init, connect(token), disconnect()</span></div>
+                                    <div class="tree-line"><span class="tree-file">useSubmissionProgress.ts</span><span class="tree-note">Hook: subscribes to WS events for a submissionId</span></div>
+                                </div>
+                                <div class="tree-line"><span class="tree-file">App.tsx</span><span class="tree-note">Router + protected routes</span></div>
+                                <div class="tree-line"><span class="tree-file">main.tsx</span></div>
+                            </div>
+                            <div class="tree-line"><span class="tree-file">vite.config.ts</span></div>
+                            <div class="tree-line"><span class="tree-file">package.json</span></div>
+                        </div>
+
+                        <div style="height:12px;"></div>
+                        <div class="tree-line"><span class="tree-folder">api/</span><span class="tree-note">Node.js + Express backend</span></div>
+                        <div class="tree-indent">
+                            <div class="tree-line"><span class="tree-folder">src/</span></div>
+                            <div class="tree-indent">
+                                <div class="tree-line"><span class="tree-folder">routes/</span></div>
+                                <div class="tree-indent">
+                                    <div class="tree-line"><span class="tree-file">auth.ts</span></div>
+                                    <div class="tree-line"><span class="tree-file">submissions.ts</span></div>
+                                    <div class="tree-line"><span class="tree-file">analysis.ts</span></div>
+                                    <div class="tree-line"><span class="tree-file">coaching.ts</span></div>
+                                    <div class="tree-line"><span class="tree-file">milestones.ts</span></div>
+                                    <div class="tree-line"><span class="tree-file">dashboard.ts</span></div>
+                                    <div class="tree-line"><span class="tree-file">webhooks.ts</span></div>
+                                </div>
+                                <div class="tree-line"><span class="tree-folder">services/</span></div>
+                                <div class="tree-indent">
+                                    <div class="tree-line"><span class="tree-file">analysisService.ts</span><span class="tree-note">GPT-4o thesis analysis</span></div>
+                                    <div class="tree-line"><span class="tree-file">coachingService.ts</span><span class="tree-note">All 3 coaching modes</span></div>
+                                    <div class="tree-line"><span class="tree-file">plagiarismService.ts</span><span class="tree-note">Copyleaks integration</span></div>
+                                    <div class="tree-line"><span class="tree-file">citationService.ts</span><span class="tree-note">3-layer citation check</span></div>
+                                    <div class="tree-line"><span class="tree-file">fileService.ts</span><span class="tree-note">Upload + text extraction</span></div>
+                                    <div class="tree-line"><span class="tree-file">azureService.ts</span><span class="tree-note">Speech + Cognitive</span></div>
+                                </div>
+                                <div class="tree-line"><span class="tree-folder">middleware/</span></div>
+                                <div class="tree-indent">
+                                    <div class="tree-line"><span class="tree-file">auth.ts</span><span class="tree-note">JWT verify + attach user</span></div>
+                                    <div class="tree-line"><span class="tree-file">roles.ts</span><span class="tree-note">professor / student guard</span></div>
+                                    <div class="tree-line"><span class="tree-file">upload.ts</span><span class="tree-note">Multer config</span></div>
+                                    <div class="tree-line"><span class="tree-file">errors.ts</span><span class="tree-note">Global error handler</span></div>
+                                </div>
+                                <div class="tree-line"><span class="tree-folder">realtime/</span></div>
+                                <div class="tree-indent">
+                                    <div class="tree-line"><span class="tree-file">socket.ts</span><span class="tree-note">Socket.IO server init, JWT handshake, rooms, emitToUser()</span></div>
+                                </div>
+                                <div class="tree-line"><span class="tree-file">index.ts</span><span class="tree-note">Express app entry</span></div>
+                                <div class="tree-line"><span class="tree-file">supabase.ts</span><span class="tree-note">Service role client</span></div>
+                            </div>
+                            <div class="tree-line"><span class="tree-file">package.json</span></div>
+                        </div>
+
+                        <div style="height:12px;"></div>
+                        <div class="tree-line"><span class="tree-folder">shared/</span><span class="tree-note">Shared types (imported by both)</span></div>
+                        <div class="tree-indent">
+                            <div class="tree-line"><span class="tree-folder">src/</span></div>
+                            <div class="tree-indent">
+                                <div class="tree-line"><span class="tree-file">types.ts</span><span class="tree-note">User, Submission, Analysis, Coach, Citation interfaces</span></div>
+                                <div class="tree-line"><span class="tree-file">constants.ts</span><span class="tree-note">MilestoneStage enum, CoachingMode enum, CitationStyle enum</span></div>
+                            </div>
+                            <div class="tree-line"><span class="tree-file">package.json</span><span class="tree-note">name: @supervise-ai/shared</span></div>
+                        </div>
+                    </div>
+                    <div class="tree-line"><span class="tree-file">.env</span><span class="tree-note">All API keys — never commit</span></div>
+                    <div class="tree-line"><span class="tree-file">package.json</span><span class="tree-note">workspaces: ["packages/*"]</span></div>
+                </div>
+            </div>
+        </div>
+
+        <div>
+            <div class="card" style="margin-bottom:16px;">
+                <div class="card-header">
+                    <div class="card-icon" style="background:rgba(16,185,129,0.1);">📦</div>
+                    <div><div class="card-title">Key Dependencies</div><div class="card-subtitle">packages/api</div></div>
+                </div>
+                <div style="font-family:var(--mono); font-size:12px; line-height:2.2; color:var(--text-mid);">
+                    <div><span style="color:var(--green)">express</span> — HTTP server</div>
+                    <div><span style="color:var(--green)">@supabase/supabase-js</span> — DB + auth</div>
+                    <div><span style="color:var(--green)">multer</span> — file upload handling</div>
+                    <div><span style="color:var(--green)">pdf-parse</span> — PDF text extraction</div>
+                    <div><span style="color:var(--green)">mammoth</span> — DOCX text extraction</div>
+                    <div><span style="color:var(--green)">diff-match-patch</span> — text diffing</div>
+                    <div><span style="color:var(--green)">openai</span> — Azure OpenAI SDK</div>
+                    <div><span style="color:var(--green)">@azure/cognitiveservices-*</span> — Speech + Sentiment</div>
+                    <div><span style="color:var(--green)">copyleaks-sdk</span> — plagiarism API</div>
+                    <div><span style="color:var(--green)">node-fetch</span> — Semantic Scholar calls</div>
+                    <div><span style="color:var(--green)">jsonwebtoken</span> — JWT verification</div>
+                    <div><span style="color:var(--green)">cors, dotenv, helmet</span> — server utils</div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-icon" style="background:rgba(59,130,246,0.1);">📦</div>
+                    <div><div class="card-title">Key Dependencies</div><div class="card-subtitle">packages/web</div></div>
+                </div>
+                <div style="font-family:var(--mono); font-size:12px; line-height:2.2; color:var(--text-mid);">
+                    <div><span style="color:var(--blue)">react + react-dom</span> — UI framework</div>
+                    <div><span style="color:var(--blue)">react-router-dom</span> — client routing</div>
+                    <div><span style="color:var(--blue)">@supabase/supabase-js</span> — auth client</div>
+                    <div><span style="color:var(--blue)">axios</span> — HTTP client</div>
+                    <div><span style="color:var(--blue)">tailwindcss</span> — styling</div>
+                    <div><span style="color:var(--blue)">react-diff-viewer</span> — diff display</div>
+                    <div><span style="color:var(--blue)">recharts</span> — analytics charts</div>
+                    <div><span style="color:var(--blue)">@supervise-ai/shared</span> — shared types</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ DATABASE -->
+<div id="database" class="section">
+    <div class="section-title">Database Schema</div>
+    <div class="section-desc">PostgreSQL via Supabase · Row Level Security on all tables · UUID primary keys</div>
+
+    <div class="grid-2">
+        <div>
+            <div class="db-table">
+                <div class="db-table-header"><div class="db-table-dot" style="background:var(--blue)"></div>users</div>
+                <div class="db-field"><span class="db-field-name">id</span><span class="db-field-type">uuid PK</span><span class="db-field-note">gen_random_uuid()</span></div>
+                <div class="db-field"><span class="db-field-name">email</span><span class="db-field-type">text</span><span class="db-field-note">unique, not null</span></div>
+                <div class="db-field"><span class="db-field-name">full_name</span><span class="db-field-type">text</span><span class="db-field-note">not null</span></div>
+                <div class="db-field"><span class="db-field-name">role</span><span class="db-field-type">text</span><span class="db-field-note">'professor' | 'student'</span></div>
+                <div class="db-field"><span class="db-field-name">created_at</span><span class="db-field-type">timestamptz</span><span class="db-field-note">default now()</span></div>
+            </div>
+
+            <div class="db-table">
+                <div class="db-table-header"><div class="db-table-dot" style="background:var(--blue)"></div>cohorts</div>
+                <div class="db-field"><span class="db-field-name">id</span><span class="db-field-type">uuid PK</span><span class="db-field-note"></span></div>
+                <div class="db-field"><span class="db-field-name">professor_id</span><span class="db-field-type">uuid FK</span><span class="db-field-note">→ users.id</span></div>
+                <div class="db-field"><span class="db-field-name">name</span><span class="db-field-type">text</span><span class="db-field-note">e.g. "BSc Thesis 2026"</span></div>
+                <div class="db-field"><span class="db-field-name">citation_style</span><span class="db-field-type">text</span><span class="db-field-note">'APA'|'MLA'|'IEEE'|'Harvard'</span></div>
+                <div class="db-field"><span class="db-field-name">created_at</span><span class="db-field-type">timestamptz</span><span class="db-field-note"></span></div>
+            </div>
+
+            <div class="db-table">
+                <div class="db-table-header"><div class="db-table-dot" style="background:var(--blue)"></div>enrollments</div>
+                <div class="db-field"><span class="db-field-name">id</span><span class="db-field-type">uuid PK</span><span class="db-field-note"></span></div>
+                <div class="db-field"><span class="db-field-name">student_id</span><span class="db-field-type">uuid FK</span><span class="db-field-note">→ users.id</span></div>
+                <div class="db-field"><span class="db-field-name">cohort_id</span><span class="db-field-type">uuid FK</span><span class="db-field-note">→ cohorts.id</span></div>
+                <div class="db-field"><span class="db-field-name">enrolled_at</span><span class="db-field-type">timestamptz</span><span class="db-field-note"></span></div>
+            </div>
+
+            <div class="db-table">
+                <div class="db-table-header"><div class="db-table-dot" style="background:var(--purple)"></div>milestones</div>
+                <div class="db-field"><span class="db-field-name">id</span><span class="db-field-type">uuid PK</span><span class="db-field-note"></span></div>
+                <div class="db-field"><span class="db-field-name">cohort_id</span><span class="db-field-type">uuid FK</span><span class="db-field-note">→ cohorts.id</span></div>
+                <div class="db-field"><span class="db-field-name">title</span><span class="db-field-type">text</span><span class="db-field-note">e.g. "Literature Review"</span></div>
+                <div class="db-field"><span class="db-field-name">stage</span><span class="db-field-type">text</span><span class="db-field-note">'proposal'|'lit_review'|'methodology'|'full_draft'|'final'</span></div>
+                <div class="db-field"><span class="db-field-name">due_date</span><span class="db-field-type">date</span><span class="db-field-note">not null</span></div>
+            </div>
+        </div>
+
+        <div>
+            <div class="db-table">
+                <div class="db-table-header"><div class="db-table-dot" style="background:var(--green)"></div>submissions</div>
+                <div class="db-field"><span class="db-field-name">id</span><span class="db-field-type">uuid PK</span><span class="db-field-note"></span></div>
+                <div class="db-field"><span class="db-field-name">student_id</span><span class="db-field-type">uuid FK</span><span class="db-field-note">→ users.id</span></div>
+                <div class="db-field"><span class="db-field-name">milestone_id</span><span class="db-field-type">uuid FK</span><span class="db-field-note">→ milestones.id (nullable)</span></div>
+                <div class="db-field"><span class="db-field-name">file_url</span><span class="db-field-type">text</span><span class="db-field-note">Supabase Storage path</span></div>
+                <div class="db-field"><span class="db-field-name">file_name</span><span class="db-field-type">text</span><span class="db-field-note">original filename</span></div>
+                <div class="db-field"><span class="db-field-name">extracted_text</span><span class="db-field-type">text</span><span class="db-field-note">full plain text from doc</span></div>
+                <div class="db-field"><span class="db-field-name">version_number</span><span class="db-field-type">integer</span><span class="db-field-note">auto-incremented per student</span></div>
+                <div class="db-field"><span class="db-field-name">status</span><span class="db-field-type">text</span><span class="db-field-note">'processing'|'complete'|'failed'</span></div>
+                <div class="db-field"><span class="db-field-name">submitted_at</span><span class="db-field-type">timestamptz</span><span class="db-field-note">default now()</span></div>
+            </div>
+
+            <div class="db-table">
+                <div class="db-table-header"><div class="db-table-dot" style="background:var(--orange)"></div>thesis_analysis</div>
+                <div class="db-field"><span class="db-field-name">id</span><span class="db-field-type">uuid PK</span><span class="db-field-note"></span></div>
+                <div class="db-field"><span class="db-field-name">submission_id</span><span class="db-field-type">uuid FK</span><span class="db-field-note">→ submissions.id unique</span></div>
+                <div class="db-field"><span class="db-field-name">progress_score</span><span class="db-field-type">integer</span><span class="db-field-note">0–100</span></div>
+                <div class="db-field"><span class="db-field-name">direction_aligned</span><span class="db-field-type">boolean</span><span class="db-field-note">is thesis on track?</span></div>
+                <div class="db-field"><span class="db-field-name">diff_summary</span><span class="db-field-type">text</span><span class="db-field-note">plain text diff overview</span></div>
+                <div class="db-field"><span class="db-field-name">gap_report</span><span class="db-field-type">jsonb</span><span class="db-field-note">[{"{"}section, severity, detail{"}"}]</span></div>
+                <div class="db-field"><span class="db-field-name">next_steps</span><span class="db-field-type">jsonb</span><span class="db-field-note">[{"{"}priority, action, reason{"}"}]</span></div>
+                <div class="db-field"><span class="db-field-name">created_at</span><span class="db-field-type">timestamptz</span><span class="db-field-note"></span></div>
+            </div>
+
+            <div class="db-table">
+                <div class="db-table-header"><div class="db-table-dot" style="background:var(--red)"></div>plagiarism_reports</div>
+                <div class="db-field"><span class="db-field-name">submission_id</span><span class="db-field-type">uuid FK</span><span class="db-field-note">→ submissions.id unique</span></div>
+                <div class="db-field"><span class="db-field-name">originality_score</span><span class="db-field-type">numeric</span><span class="db-field-note">0–100 percent original</span></div>
+                <div class="db-field"><span class="db-field-name">flagged_passages</span><span class="db-field-type">jsonb</span><span class="db-field-note">[{"{"}text, source_url, match_pct{"}"}]</span></div>
+                <div class="db-field"><span class="db-field-name">copyleaks_scan_id</span><span class="db-field-type">text</span><span class="db-field-note">for webhook matching</span></div>
+                <div class="db-field"><span class="db-field-name">score_dropped</span><span class="db-field-type">boolean</span><span class="db-field-note">alert flag if score fell &gt;10%</span></div>
+                <div class="db-field"><span class="db-field-name">created_at</span><span class="db-field-type">timestamptz</span><span class="db-field-note"></span></div>
+            </div>
+
+            <div class="db-table">
+                <div class="db-table-header"><div class="db-table-dot" style="background:var(--cyan)"></div>citation_reports</div>
+                <div class="db-field"><span class="db-field-name">submission_id</span><span class="db-field-type">uuid FK</span><span class="db-field-note">→ submissions.id unique</span></div>
+                <div class="db-field"><span class="db-field-name">detected_style</span><span class="db-field-type">text</span><span class="db-field-note">APA / MLA / IEEE / Harvard</span></div>
+                <div class="db-field"><span class="db-field-name">missing_citations</span><span class="db-field-type">jsonb</span><span class="db-field-note">[{"{"}in_text_key, context{"}"}]</span></div>
+                <div class="db-field"><span class="db-field-name">orphaned_refs</span><span class="db-field-type">jsonb</span><span class="db-field-note">[{"{"}ref_entry{"}"}] never cited</span></div>
+                <div class="db-field"><span class="db-field-name">format_errors</span><span class="db-field-type">jsonb</span><span class="db-field-note">[{"{"}entry, error, suggested_fix{"}"}]</span></div>
+                <div class="db-field"><span class="db-field-name">unverifiable</span><span class="db-field-type">jsonb</span><span class="db-field-note">[{"{"}entry, reason{"}"}] not in Scholar</span></div>
+                <div class="db-field"><span class="db-field-name">created_at</span><span class="db-field-type">timestamptz</span><span class="db-field-note"></span></div>
+            </div>
+
+            <div class="db-table">
+                <div class="db-table-header"><div class="db-table-dot" style="background:var(--purple)"></div>coaching_sessions</div>
+                <div class="db-field"><span class="db-field-name">id</span><span class="db-field-type">uuid PK</span><span class="db-field-note"></span></div>
+                <div class="db-field"><span class="db-field-name">student_id</span><span class="db-field-type">uuid FK</span><span class="db-field-note">→ users.id</span></div>
+                <div class="db-field"><span class="db-field-name">submission_id</span><span class="db-field-type">uuid FK</span><span class="db-field-note">→ submissions.id</span></div>
+                <div class="db-field"><span class="db-field-name">mode</span><span class="db-field-type">text</span><span class="db-field-note">'argument_defender'|'socratic'|'mock_viva'</span></div>
+                <div class="db-field"><span class="db-field-name">transcript</span><span class="db-field-type">jsonb</span><span class="db-field-note">[{"{"}role, content, confidence?{"}"}]</span></div>
+                <div class="db-field"><span class="db-field-name">feedback_report</span><span class="db-field-type">jsonb</span><span class="db-field-note">scores + recommendations</span></div>
+                <div class="db-field"><span class="db-field-name">readiness_score</span><span class="db-field-type">integer</span><span class="db-field-note">0–100 (mock_viva only)</span></div>
+                <div class="db-field"><span class="db-field-name">created_at</span><span class="db-field-type">timestamptz</span><span class="db-field-note"></span></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ API ROUTES -->
+<div id="api" class="section">
+    <div class="section-title">API Routes</div>
+    <div class="section-desc">All routes prefixed with /api/v1 · Protected routes require Authorization: Bearer {"{"}token{"}"}</div>
+
+    <div class="card" style="margin-bottom:20px; overflow-x:auto;">
+        <table class="route-table">
+            <thead>
+            <tr><th>Method</th><th>Route</th><th>Auth</th><th>Description</th><th>Key Behavior</th></tr>
+            </thead>
+            <tbody>
+            <tr><td colspan="5" style="background:var(--surface2); color:var(--text-dim); font-size:10px; letter-spacing:1px; text-transform:uppercase; padding:8px 14px;">AUTH</td></tr>
+            <tr><td><span class="method POST">POST</span></td><td>/auth/register</td><td>—</td><td>Create account</td><td>email, password, full_name, role → create Supabase auth user + insert into users table</td></tr>
+            <tr><td><span class="method POST">POST</span></td><td>/auth/login</td><td>—</td><td>Login</td><td>email, password → Supabase signIn → return session token + user object with role</td></tr>
+            <tr><td><span class="method POST">POST</span></td><td>/auth/logout</td><td>✓</td><td>Logout</td><td>Supabase signOut, clear session</td></tr>
+
+            <tr><td colspan="5" style="background:var(--surface2); color:var(--text-dim); font-size:10px; letter-spacing:1px; text-transform:uppercase; padding:8px 14px;">SUBMISSIONS</td></tr>
+            <tr><td><span class="method POST">POST</span></td><td>/submissions</td><td>student</td><td>Upload draft</td><td>multipart/form-data (file + milestone_id optional) → save to storage → extract text → fire 3 parallel jobs → return submissionId immediately</td></tr>
+            <tr><td><span class="method GET">GET</span></td><td>/submissions/:id</td><td>✓</td><td>Get submission</td><td>Return submission row + status. Frontend polls this until status = 'complete'</td></tr>
+            <tr><td><span class="method GET">GET</span></td><td>/submissions/student/:studentId</td><td>✓</td><td>All submissions</td><td>Return all submissions for a student, ordered by version_number desc</td></tr>
+
+            <tr><td colspan="5" style="background:var(--surface2); color:var(--text-dim); font-size:10px; letter-spacing:1px; text-transform:uppercase; padding:8px 14px;">ANALYSIS</td></tr>
+            <tr><td><span class="method GET">GET</span></td><td>/analysis/thesis/:submissionId</td><td>✓</td><td>ThesisTrack result</td><td>Return thesis_analysis row for submission. Null if still processing.</td></tr>
+            <tr><td><span class="method GET">GET</span></td><td>/analysis/plagiarism/:submissionId</td><td>✓</td><td>Plagiarism report</td><td>Return plagiarism_reports row. May be null if Copyleaks still processing.</td></tr>
+            <tr><td><span class="method GET">GET</span></td><td>/analysis/citations/:submissionId</td><td>✓</td><td>Citation report</td><td>Return citation_reports row for submission.</td></tr>
+            <tr><td><span class="method GET">GET</span></td><td>/analysis/full/:submissionId</td><td>✓</td><td>All 3 results</td><td>Return thesis_analysis + plagiarism_reports + citation_reports in one response. Used by frontend to hydrate result page.</td></tr>
+
+            <tr><td colspan="5" style="background:var(--surface2); color:var(--text-dim); font-size:10px; letter-spacing:1px; text-transform:uppercase; padding:8px 14px;">COACHING</td></tr>
+            <tr><td><span class="method POST">POST</span></td><td>/coaching/start</td><td>student</td><td>Start session</td><td>Body: {"{"}submissionId, mode{"}"} → create coaching_sessions row → return sessionId + first AI message/question</td></tr>
+            <tr><td><span class="method POST">POST</span></td><td>/coaching/message</td><td>student</td><td>Send message</td><td>Body: {"{"}sessionId, content{"}"} → append to transcript → call GPT-4o with full context → return AI response</td></tr>
+            <tr><td><span class="method POST">POST</span></td><td>/coaching/voice</td><td>student</td><td>Voice input</td><td>Body: audio blob → Azure Speech-to-Text → return transcript text. Client then calls /coaching/message with transcript.</td></tr>
+            <tr><td><span class="method POST">POST</span></td><td>/coaching/tts</td><td>student</td><td>Text to speech</td><td>Body: {"{"}text{"}"} → Azure TTS → return audio buffer. Client plays it as AI examiner voice.</td></tr>
+            <tr><td><span class="method POST">POST</span></td><td>/coaching/end</td><td>student</td><td>End session</td><td>Body: {"{"}sessionId{"}"} → generate final feedback report via GPT-4o → save to coaching_sessions → return report</td></tr>
+            <tr><td><span class="method GET">GET</span></td><td>/coaching/:studentId</td><td>✓</td><td>Session history</td><td>Return all coaching sessions for student with readiness_score and mode</td></tr>
+
+            <tr><td colspan="5" style="background:var(--surface2); color:var(--text-dim); font-size:10px; letter-spacing:1px; text-transform:uppercase; padding:8px 14px;">MILESTONES</td></tr>
+            <tr><td><span class="method POST">POST</span></td><td>/milestones</td><td>professor</td><td>Create milestone</td><td>Body: {"{"}cohort_id, title, stage, due_date{"}"}</td></tr>
+            <tr><td><span class="method GET">GET</span></td><td>/milestones/cohort/:cohortId</td><td>✓</td><td>Get milestones</td><td>Return all milestones for cohort with student completion status</td></tr>
+            <tr><td><span class="method PATCH">PATCH</span></td><td>/milestones/:id</td><td>professor</td><td>Update milestone</td><td>Update due_date or title</td></tr>
+
+            <tr><td colspan="5" style="background:var(--surface2); color:var(--text-dim); font-size:10px; letter-spacing:1px; text-transform:uppercase; padding:8px 14px;">DASHBOARD</td></tr>
+            <tr><td><span class="method GET">GET</span></td><td>/dashboard/professor/:id</td><td>professor</td><td>Prof dashboard data</td><td>All students + latest submission + latest analysis summary + at-risk flag</td></tr>
+            <tr><td><span class="method GET">GET</span></td><td>/dashboard/analytics/:professorId</td><td>professor</td><td>Analytics data</td><td>Cohort weak spots, submission velocity, at-risk list, progress trends</td></tr>
+            <tr><td><span class="method GET">GET</span></td><td>/dashboard/student/:id</td><td>student</td><td>Student home data</td><td>Latest submission + analysis + current milestone + coaching session count</td></tr>
+
+            <tr><td colspan="5" style="background:var(--surface2); color:var(--text-dim); font-size:10px; letter-spacing:1px; text-transform:uppercase; padding:8px 14px;">WEBHOOKS</td></tr>
+            <tr><td><span class="method POST">POST</span></td><td>/webhooks/copyleaks</td><td>—</td><td>Plagiarism result</td><td>Copyleaks calls this when scan completes → match by scan_id → save to plagiarism_reports → update submission status if all jobs done</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ FRONTEND -->
+<!-- ═══════════════════════════════════════════════════════════ REALTIME -->
+<div id="realtime" class="section">
+    <div class="section-title">Realtime Layer — WebSocket</div>
+    <div class="section-desc">Socket.IO · Replaces polling · JWT-authenticated rooms · REST remains source of truth for data fetching</div>
+
+    <div class="grid-2">
+        <div class="card">
+            <div class="card-header">
+                <div class="card-icon" style="background:rgba(6,182,212,0.1);">⚡</div>
+                <div><div class="card-title">Backend Setup</div><div class="card-subtitle">packages/api/src/realtime/socket.ts</div></div>
+            </div>
+            <div class="flow">
+                <div class="flow-step">
+                    <div class="flow-num" style="background:rgba(6,182,212,0.15);color:var(--cyan)">1</div>
+                    <div class="flow-content">
+                        <div class="flow-content-title">Attach to HTTP server</div>
+                        <div class="flow-content-detail">In index.ts: wrap Express app with http.createServer(app). Pass httpServer to new Server(httpServer, {cors}). Export io so all services can call emitToUser().</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-num" style="background:rgba(6,182,212,0.15);color:var(--cyan)">2</div>
+                    <div class="flow-content">
+                        <div class="flow-content-title">JWT handshake on connect</div>
+                        <div class="flow-content-detail">io.use(async (socket, next) => { const token = socket.handshake.auth.token; const {data} = await supabase.auth.getUser(token); if (!data.user) return next(new Error('Unauthorized')); socket.data.userId = data.user.id; socket.data.role = data.user.user_metadata.role; next(); })</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-num" style="background:rgba(6,182,212,0.15);color:var(--cyan)">3</div>
+                    <div class="flow-content">
+                        <div class="flow-content-title">Join rooms on connection</div>
+                        <div class="flow-content-detail">socket.join(`user:${userId}`) — always. If role === 'professor': socket.join(`professor:${userId}`). Store userId in socket.data for room lookups.</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-num" style="background:rgba(6,182,212,0.15);color:var(--cyan)">4</div>
+                    <div class="flow-content">
+                        <div class="flow-content-title">emitToUser() helper</div>
+                        <div class="flow-content-detail">Export: emitToUser(userId, event, payload) → io.to(`user:${userId}`).emit(event, payload). All services import this. Never emit to a room without verifying authorization first.</div>
+                    </div>
+                </div>
+                <div class="flow-step">
+                    <div class="flow-num" style="background:rgba(6,182,212,0.15);color:var(--cyan)">5</div>
+                    <div class="flow-content">
+                        <div class="flow-content-title">emitToProfessor() helper</div>
+                        <div class="flow-content-detail">Export: emitToProfessor(professorId, event, payload) → io.to(`professor:${professorId}`).emit(event, payload). Requires a lookup from student → cohort → professor (via enrollments table) before emitting.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <div class="card-icon" style="background:rgba(6,182,212,0.1);">🌐</div>
+                <div><div class="card-title">Frontend Setup</div><div class="card-subtitle">packages/web/src/lib/socket.ts</div></div>
+            </div>
+            <div style="font-family:var(--mono); font-size:12px; line-height:2; color:var(--text-mid); margin-bottom:16px;">
+                <div><span style="color:var(--cyan)">connect(token)</span> — called after successful login. io(API_URL, { auth: { token }, reconnection: true })</div>
+                <div><span style="color:var(--cyan)">disconnect()</span> — called on logout</div>
+                <div><span style="color:var(--cyan)">reconnect on token refresh</span> — call disconnect() then connect(newToken) when Supabase refreshes session</div>
+                <div><span style="color:var(--cyan)">socket.on('connect_error')</span> — log, show "Refresh" fallback button to user</div>
+            </div>
+            <div style="border-top:1px solid var(--border); padding-top:14px;">
+                <div style="font-size:12px; font-weight:600; margin-bottom:10px;">useSubmissionProgress hook</div>
+                <div style="font-family:var(--mono); font-size:11px; line-height:1.9; color:var(--text-mid);">
+                    Takes submissionId as input.<br/>
+                    Subscribes to submission.stage, submission.complete, submission.failed, plagiarism.ready.<br/>
+                    Returns: { stage, progress, isComplete, hasPlagiarism, error }<br/>
+                    On isComplete → caller fetches GET /analysis/full/:id<br/>
+                    On hasPlagiarism → caller re-fetches plagiarism section only<br/>
+                    Fallback: if socket disconnects → slow poll every 25s on GET /submissions/:id
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Event contracts -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-icon" style="background:rgba(6,182,212,0.1);">📡</div>
+            <div><div class="card-title">Event Contract</div><div class="card-subtitle">All events emitted server → client · Never include full thesis text in payloads</div></div>
+        </div>
+
+        <div class="grid-2">
+            <div>
+                <div style="font-size:12px; font-weight:700; color:var(--cyan); margin-bottom:12px; font-family:var(--mono); border-bottom:1px solid var(--border); padding-bottom:8px;">A. Submission Lifecycle</div>
+
+                <div style="margin-bottom:16px;">
+                    <div style="font-family:var(--mono); font-size:11px; color:var(--green); font-weight:700; margin-bottom:4px;">submission.created</div>
+                    <div style="font-size:11px; color:var(--text-dim); margin-bottom:6px;">Emitted: right after POST /submissions inserts row · Room: user:{studentId}</div>
+                    <div style="background:var(--surface2); border:1px solid var(--border); border-radius:4px; padding:10px; font-family:var(--mono); font-size:11px; color:var(--text-mid); line-height:1.8;">
+                        { submissionId, studentId,<br/>
+                        &nbsp; status: "processing",<br/>
+                        &nbsp; versionNumber: 3,<br/>
+                        &nbsp; submittedAt: "iso" }
+                    </div>
+                </div>
+
+                <div style="margin-bottom:16px;">
+                    <div style="font-family:var(--mono); font-size:11px; color:var(--orange); font-weight:700; margin-bottom:4px;">submission.stage</div>
+                    <div style="font-size:11px; color:var(--text-dim); margin-bottom:6px;">Emitted: after each pipeline step completes · Room: user:{studentId}</div>
+                    <div style="background:var(--surface2); border:1px solid var(--border); border-radius:4px; padding:10px; font-family:var(--mono); font-size:11px; color:var(--text-mid); line-height:1.8;">
+                        { submissionId,<br/>
+                        &nbsp; stage: "stored_file" | "text_extracted" |<br/>
+                        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; "thesis_analysis_done" | "citations_done" |<br/>
+                        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; "plagiarism_pending" | "plagiarism_done",<br/>
+                        &nbsp; message: "Extracting text from PDF...",<br/>
+                        &nbsp; progress: 0.25 }
+                    </div>
+                    <div style="margin-top:8px; font-family:var(--mono); font-size:10px; color:var(--text-dim);">
+                        stored_file → 0.10 &nbsp;|&nbsp; text_extracted → 0.25<br/>
+                        thesis_analysis_done → 0.60 &nbsp;|&nbsp; citations_done → 0.80<br/>
+                        complete → 1.0 &nbsp;|&nbsp; plagiarism is separate async track
+                    </div>
+                </div>
+
+                <div style="margin-bottom:16px;">
+                    <div style="font-family:var(--mono); font-size:11px; color:var(--blue); font-weight:700; margin-bottom:4px;">submission.complete</div>
+                    <div style="font-size:11px; color:var(--text-dim); margin-bottom:6px;">Emitted: when ThesisTrack + Citations both done (plagiarism may still be pending)</div>
+                    <div style="background:var(--surface2); border:1px solid var(--border); border-radius:4px; padding:10px; font-family:var(--mono); font-size:11px; color:var(--text-mid); line-height:1.8;">
+                        { submissionId, status: "complete" }
+                    </div>
+                    <div style="margin-top:6px; font-size:11px; color:var(--text-dim);">→ client calls GET /analysis/full/:submissionId</div>
+                </div>
+
+                <div>
+                    <div style="font-family:var(--mono); font-size:11px; color:var(--red); font-weight:700; margin-bottom:4px;">submission.failed</div>
+                    <div style="font-size:11px; color:var(--text-dim); margin-bottom:6px;">Emitted: if pipeline hard-fails</div>
+                    <div style="background:var(--surface2); border:1px solid var(--border); border-radius:4px; padding:10px; font-family:var(--mono); font-size:11px; color:var(--text-mid); line-height:1.8;">
+                        { submissionId, status: "failed",<br/>
+                        &nbsp; error: "UI-safe short message" }
+                    </div>
+                </div>
+            </div>
+
+            <div>
+                <div style="font-size:12px; font-weight:700; color:var(--cyan); margin-bottom:12px; font-family:var(--mono); border-bottom:1px solid var(--border); padding-bottom:8px;">B. Plagiarism + Coaching</div>
+
+                <div style="margin-bottom:16px;">
+                    <div style="font-family:var(--mono); font-size:11px; color:var(--red); font-weight:700; margin-bottom:4px;">plagiarism.ready</div>
+                    <div style="font-size:11px; color:var(--text-dim); margin-bottom:6px;">Emitted: inside /webhooks/copyleaks after saving plagiarism_reports · Room: user:{studentId} + professor room</div>
+                    <div style="background:var(--surface2); border:1px solid var(--border); border-radius:4px; padding:10px; font-family:var(--mono); font-size:11px; color:var(--text-mid); line-height:1.8;">
+                        { submissionId,<br/>
+                        &nbsp; originalityScore: 84.2,<br/>
+                        &nbsp; scoreDropped: false }
+                    </div>
+                    <div style="margin-top:6px; font-size:11px; color:var(--text-dim);">→ client re-fetches GET /analysis/plagiarism/:submissionId to get full flagged passages</div>
+                </div>
+
+                <div style="margin-bottom:16px;">
+                    <div style="font-family:var(--mono); font-size:11px; color:var(--purple); font-weight:700; margin-bottom:4px;">coaching.ai_ready <span style="font-weight:400; color:var(--text-dim)">(optional)</span></div>
+                    <div style="font-size:11px; color:var(--text-dim); margin-bottom:6px;">Emitted: after /coaching/message saves response to DB · Useful for future async mode</div>
+                    <div style="background:var(--surface2); border:1px solid var(--border); border-radius:4px; padding:10px; font-family:var(--mono); font-size:11px; color:var(--text-mid); line-height:1.8;">
+                        { sessionId, mode: "mock_viva",<br/>
+                        &nbsp; lastMessageRole: "assistant" }
+                    </div>
+                </div>
+
+                <div style="margin-bottom:16px;">
+                    <div style="font-family:var(--mono); font-size:11px; color:var(--blue); font-weight:700; margin-bottom:4px;">dashboard.student_update <span style="font-weight:400; color:var(--text-dim)">(bonus)</span></div>
+                    <div style="font-size:11px; color:var(--text-dim); margin-bottom:6px;">Emitted: to professor room when a student's submission completes · Allows dashboard to patch live without full refresh</div>
+                    <div style="background:var(--surface2); border:1px solid var(--border); border-radius:4px; padding:10px; font-family:var(--mono); font-size:11px; color:var(--text-mid); line-height:1.8;">
+                        { studentId, submissionId,<br/>
+                        &nbsp; progressScore: 72,<br/>
+                        &nbsp; atRisk: false }
+                    </div>
+                    <div style="margin-top:6px; font-size:11px; color:var(--text-dim);">Requires enrollments lookup: student → cohort → professor before emitting to professor room</div>
+                </div>
+
+                <div style="background:rgba(245,158,11,0.05); border:1px solid rgba(245,158,11,0.2); border-radius:6px; padding:14px;">
+                    <div style="font-size:12px; font-weight:700; color:var(--orange); margin-bottom:8px;">Security Rules</div>
+                    <div style="font-size:12px; color:var(--text-mid); line-height:1.8;">
+                        Never emit to a room unless the user is authorized for that data<br/>
+                        Events only contain minimal UI-safe data — no thesis text<br/>
+                        Full reports still fetched via REST + JWT + RLS<br/>
+                        Reject socket connection if Supabase JWT invalid
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Where to emit from services -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-icon" style="background:rgba(6,182,212,0.1);">📍</div>
+            <div><div class="card-title">Where Each Event Is Emitted</div><div class="card-subtitle">Which service file calls emitToUser()</div></div>
+        </div>
+        <table class="route-table">
+            <thead><tr><th>Event</th><th>Emitted From</th><th>Room</th><th>Trigger</th></tr></thead>
+            <tbody>
+            <tr><td style="color:var(--green); font-family:var(--mono); font-size:11px;">submission.created</td><td>routes/submissions.ts</td><td>user:{studentId}</td><td>Immediately after INSERT into submissions</td></tr>
+            <tr><td style="color:var(--orange); font-family:var(--mono); font-size:11px;">submission.stage (stored_file)</td><td>services/fileService.ts</td><td>user:{studentId}</td><td>After Supabase Storage upload completes</td></tr>
+            <tr><td style="color:var(--orange); font-family:var(--mono); font-size:11px;">submission.stage (text_extracted)</td><td>services/fileService.ts</td><td>user:{studentId}</td><td>After pdf-parse or mammoth.js completes</td></tr>
+            <tr><td style="color:var(--orange); font-family:var(--mono); font-size:11px;">submission.stage (thesis_analysis_done)</td><td>services/analysisService.ts</td><td>user:{studentId}</td><td>After INSERT into thesis_analysis</td></tr>
+            <tr><td style="color:var(--orange); font-family:var(--mono); font-size:11px;">submission.stage (citations_done)</td><td>services/citationService.ts</td><td>user:{studentId}</td><td>After INSERT into citation_reports</td></tr>
+            <tr><td style="color:var(--blue); font-family:var(--mono); font-size:11px;">submission.complete</td><td>routes/submissions.ts</td><td>user:{studentId}</td><td>After UPDATE submissions SET status='complete'</td></tr>
+            <tr><td style="color:var(--red); font-family:var(--mono); font-size:11px;">submission.failed</td><td>middleware/errors.ts (pipeline catch)</td><td>user:{studentId}</td><td>On any unrecoverable pipeline error</td></tr>
+            <tr><td style="color:var(--red); font-family:var(--mono); font-size:11px;">plagiarism.ready</td><td>routes/webhooks.ts</td><td>user:{studentId} + professor:{profId}</td><td>After saving plagiarism_reports from Copyleaks webhook</td></tr>
+            <tr><td style="color:var(--purple); font-family:var(--mono); font-size:11px;">coaching.ai_ready</td><td>routes/coaching.ts</td><td>user:{studentId}</td><td>After /coaching/message saves to DB (optional)</td></tr>
+            <tr><td style="color:var(--blue); font-family:var(--mono); font-size:11px;">dashboard.student_update</td><td>routes/submissions.ts (on complete)</td><td>professor:{profId}</td><td>After submission.complete, look up professor via enrollments</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div id="frontend" class="section">
+    <div class="section-title">Frontend Pages</div>
+    <div class="section-desc">React.js (Vite) · React Router v6 · Protected routes based on JWT role · Tailwind CSS</div>
+
+    <div class="grid-2">
+        <div>
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-icon" style="background:rgba(59,130,246,0.1);">🎓</div>
+                    <div><div class="card-title">Professor Routes</div><div class="card-subtitle">/professor/* — role guard required</div></div>
+                </div>
+                <div class="flow">
+                    <div class="flow-step">
+                        <div class="flow-num" style="background:rgba(59,130,246,0.15); color:var(--blue)">/</div>
+                        <div class="flow-content">
+                            <div class="flow-content-title">Dashboard <span style="font-size:11px; color:var(--text-dim); font-weight:400;">— /professor/dashboard</span></div>
+                            <div class="flow-content-detail">Student cards · progress scores · at-risk badges · last submission date. Click student → StudentDetail.</div>
+                        </div>
+                    </div>
+                    <div class="flow-step">
+                        <div class="flow-num" style="background:rgba(59,130,246,0.15); color:var(--blue)">/s</div>
+                        <div class="flow-content">
+                            <div class="flow-content-title">Student Detail <span style="font-size:11px; color:var(--text-dim); font-weight:400;">— /professor/student/:id</span></div>
+                            <div class="flow-content-detail">Diff viewer · gap report · next steps · plagiarism score · citation report · coaching session summaries · submission version history.</div>
+                        </div>
+                    </div>
+                    <div class="flow-step">
+                        <div class="flow-num" style="background:rgba(59,130,246,0.15); color:var(--blue)">/a</div>
+                        <div class="flow-content">
+                            <div class="flow-content-title">Analytics <span style="font-size:11px; color:var(--text-dim); font-weight:400;">— /professor/analytics</span></div>
+                            <div class="flow-content-detail">At-risk list · cohort weak spots bar chart · submission velocity per student · progress trend sparklines.</div>
+                        </div>
+                    </div>
+                    <div class="flow-step">
+                        <div class="flow-num" style="background:rgba(59,130,246,0.15); color:var(--blue)">/m</div>
+                        <div class="flow-content">
+                            <div class="flow-content-title">Milestones <span style="font-size:11px; color:var(--text-dim); font-weight:400;">— /professor/milestones</span></div>
+                            <div class="flow-content-detail">Create / edit milestones · set due dates per stage · see student completion status across cohort.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div>
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-icon" style="background:rgba(16,185,129,0.1);">📚</div>
+                    <div><div class="card-title">Student Routes</div><div class="card-subtitle">/student/* — role guard required</div></div>
+                </div>
+                <div class="flow">
+                    <div class="flow-step">
+                        <div class="flow-num" style="background:rgba(16,185,129,0.15); color:var(--green)">/</div>
+                        <div class="flow-content">
+                            <div class="flow-content-title">Home <span style="font-size:11px; color:var(--text-dim); font-weight:400;">— /student/home</span></div>
+                            <div class="flow-content-detail">Progress score · last submission · current milestone · coaching sessions count · quick action buttons.</div>
+                        </div>
+                    </div>
+                    <div class="flow-step">
+                        <div class="flow-num" style="background:rgba(16,185,129,0.15); color:var(--green)">/u</div>
+                        <div class="flow-content">
+                            <div class="flow-content-title">Submit Draft <span style="font-size:11px; color:var(--text-dim); font-weight:400;">— /student/submit</span></div>
+                            <div class="flow-content-detail">File upload (PDF/DOCX) · milestone selector · upload progress bar · polling spinner → result page with full analysis.</div>
+                        </div>
+                    </div>
+                    <div class="flow-step">
+                        <div class="flow-num" style="background:rgba(16,185,129,0.15); color:var(--green)">/c</div>
+                        <div class="flow-content">
+                            <div class="flow-content-title">AI Coach <span style="font-size:11px; color:var(--text-dim); font-weight:400;">— /student/coach</span></div>
+                            <div class="flow-content-detail">Mode selector (Argument Defender / Socratic / Mock Viva) · chat interface · voice interface for viva · session feedback report.</div>
+                        </div>
+                    </div>
+                    <div class="flow-step">
+                        <div class="flow-num" style="background:rgba(16,185,129,0.15); color:var(--green)">/h</div>
+                        <div class="flow-content">
+                            <div class="flow-content-title">History <span style="font-size:11px; color:var(--text-dim); font-weight:400;">— /student/history</span></div>
+                            <div class="flow-content-detail">All past submissions · version-by-version diff · progress score timeline · citation + plagiarism reports per version.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <div class="card-icon" style="background:rgba(245,158,11,0.1);">🔒</div>
+            <div><div class="card-title">Auth + Routing Logic</div><div class="card-subtitle">App.tsx — role-based routing</div></div>
+        </div>
+        <div style="font-family:var(--mono); font-size:12px; line-height:2; color:var(--text-mid);">
+            <div><span style="color:var(--orange)">useAuth()</span> — reads Supabase session on mount → sets user + role in context</div>
+            <div><span style="color:var(--orange)">ProtectedRoute</span> — checks auth + role, redirects to /login if not authenticated</div>
+            <div><span style="color:var(--orange)">/login</span> → on success: role === 'professor' → /professor/dashboard · role === 'student' → /student/home</div>
+            <div><span style="color:var(--orange)">/ root</span> → redirects to dashboard based on current role if logged in, else → /login</div>
+            <div><span style="color:var(--orange)">token refresh</span> — Supabase handles silently. Axios interceptor attaches Bearer token to every request.</div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ AI PIPELINE -->
+<div id="pipeline" class="section">
+    <div class="section-title">AI Pipeline</div>
+    <div class="section-desc">All AI calls made server-side only · Never expose API keys to client · Azure OpenAI endpoint</div>
+
+    <div class="grid-2">
+        <div>
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-icon" style="background:rgba(245,158,11,0.1);">🔬</div>
+                    <div><div class="card-title">ThesisTrack Pipeline</div><div class="card-subtitle">analysisService.ts</div></div>
+                </div>
+                <div class="flow">
+                    <div class="flow-step"><div class="flow-num" style="background:rgba(245,158,11,0.15);color:var(--orange)">1</div><div class="flow-content"><div class="flow-content-title">Fetch previous submission text</div><div class="flow-content-detail">Query submissions table for student's previous version. If none → first submission, skip diff.</div></div></div>
+                    <div class="flow-step"><div class="flow-num" style="background:rgba(245,158,11,0.15);color:var(--orange)">2</div><div class="flow-content"><div class="flow-content-title">Run diff-match-patch</div><div class="flow-content-detail">Compare previous_text vs current_text. Generate diff summary string highlighting major additions, removals, restructuring.</div></div></div>
+                    <div class="flow-step"><div class="flow-num" style="background:rgba(245,158,11,0.15);color:var(--orange)">3</div><div class="flow-content"><div class="flow-content-title">Build GPT-4o prompt</div><div class="flow-content-detail">System: "You are an expert thesis examiner..." · User: full thesis text + diff summary + milestone stage + expected requirements for this stage.</div></div></div>
+                    <div class="flow-step"><div class="flow-num" style="background:rgba(245,158,11,0.15);color:var(--orange)">4</div><div class="flow-content"><div class="flow-content-title">GPT-4o response (JSON)</div><div class="flow-content-detail">Returns: progress_score (int), direction_aligned (bool), gap_report (array), next_steps (array). Parse + validate.</div></div></div>
+                    <div class="flow-step"><div class="flow-num" style="background:rgba(245,158,11,0.15);color:var(--orange)">5</div><div class="flow-content"><div class="flow-content-title">Save to thesis_analysis</div><div class="flow-content-detail">Insert row linked to submissionId. Update submission status = 'complete' if all 3 jobs done.</div></div></div>
+                </div>
+            </div>
+        </div>
+
+        <div>
+            <div class="card" style="margin-bottom:16px;">
+                <div class="card-header">
+                    <div class="card-icon" style="background:rgba(139,92,246,0.1);">🎤</div>
+                    <div><div class="card-title">Mock Viva Pipeline</div><div class="card-subtitle">coachingService.ts + azureService.ts</div></div>
+                </div>
+                <div class="flow">
+                    <div class="flow-step"><div class="flow-num" style="background:rgba(139,92,246,0.15);color:var(--purple)">1</div><div class="flow-content"><div class="flow-content-title">Generate viva questions</div><div class="flow-content-detail">GPT-4o reads full thesis → generates 8–10 examiner questions as JSON array. Stored in session.</div></div></div>
+                    <div class="flow-step"><div class="flow-num" style="background:rgba(139,92,246,0.15);color:var(--purple)">2</div><div class="flow-content"><div class="flow-content-title">Azure TTS → question audio</div><div class="flow-content-detail">First question text → Azure Text-to-Speech → audio buffer → stream to client. Client plays it.</div></div></div>
+                    <div class="flow-step"><div class="flow-num" style="background:rgba(139,92,246,0.15);color:var(--purple)">3</div><div class="flow-content"><div class="flow-content-title">Azure STT → student answer</div><div class="flow-content-detail">Student speaks → audio sent to /coaching/voice → Azure Speech-to-Text → transcript returned.</div></div></div>
+                    <div class="flow-step"><div class="flow-num" style="background:rgba(139,92,246,0.15);color:var(--purple)">4</div><div class="flow-content"><div class="flow-content-title">Azure Cognitive → confidence</div><div class="flow-content-detail">Transcript sent to Cognitive Services sentiment/confidence analysis. Returns confidence score + sentiment.</div></div></div>
+                    <div class="flow-step"><div class="flow-num" style="background:rgba(139,92,246,0.15);color:var(--purple)">5</div><div class="flow-content"><div class="flow-content-title">GPT-4o → next question</div><div class="flow-content-detail">If confidence low → easier follow-up. If high → harder probing question. Repeat loop until all questions done.</div></div></div>
+                    <div class="flow-step"><div class="flow-num" style="background:rgba(139,92,246,0.15);color:var(--purple)">6</div><div class="flow-content"><div class="flow-content-title">Generate readiness report</div><div class="flow-content-detail">Full transcript + confidence scores → GPT-4o → readiness_score + strongest section + weakest section + prep recommendations. Saved to DB.</div></div></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <div class="card-icon" style="background:rgba(6,182,212,0.1);">📎</div>
+            <div><div class="card-title">Citation Validator Pipeline</div><div class="card-subtitle">citationService.ts · 3 layers · runs on same parsed text</div></div>
+        </div>
+        <div class="grid-3">
+            <div>
+                <div style="font-size:12px; font-weight:700; color:var(--cyan); margin-bottom:10px; font-family:var(--mono);">LAYER 1 — Node.js Regex</div>
+                <div style="font-size:12px; color:var(--text-mid); line-height:1.8;">
+                    Extract in-text citations:<br/>
+                    <code style="color:var(--cyan)">(Author, YYYY)</code><br/>
+                    <code style="color:var(--cyan)">[1], [1-3]</code><br/>
+                    <code style="color:var(--cyan)">[AuthorYY]</code><br/><br/>
+                    Extract bibliography entries from References section.<br/><br/>
+                    Cross-reference → flag missing + orphaned.
+                </div>
+            </div>
+            <div>
+                <div style="font-size:12px; font-weight:700; color:var(--orange); margin-bottom:10px; font-family:var(--mono);">LAYER 2 — GPT-4o</div>
+                <div style="font-size:12px; color:var(--text-mid); line-height:1.8;">
+                    Send bibliography entries + detected style to GPT-4o.<br/><br/>
+                    Prompt: "Validate each entry against {style} rules. Return JSON: [{entry, error, suggested_fix}]"<br/><br/>
+                    Catches: wrong date format, bad author order, missing DOI, capitalisation errors.
+                </div>
+            </div>
+            <div>
+                <div style="font-size:12px; font-weight:700; color:var(--green); margin-bottom:10px; font-family:var(--mono);">LAYER 3 — Semantic Scholar</div>
+                <div style="font-size:12px; color:var(--text-mid); line-height:1.8;">
+                    Per bibliography entry: extract title or DOI.<br/><br/>
+                    <code style="color:var(--green)">GET api.semanticscholar.org /graph/v1/paper/search?query={title}</code><br/><br/>
+                    No match → flag as "Unverifiable". Catches AI-hallucinated fake references. Free, no API key.
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ DATA FLOW -->
+<div id="dataflow" class="section">
+    <div class="section-title">End-to-End Data Flow</div>
+    <div class="section-desc">The critical path — student uploads draft → 3 parallel analysis jobs → professor sees result</div>
+
+    <div class="card">
+        <div class="flow">
+            <div class="flow-step">
+                <div class="flow-num" style="background:rgba(16,185,129,0.15);color:var(--green)">1</div>
+                <div class="flow-content">
+                    <div class="flow-content-title">Student uploads draft</div>
+                    <div class="flow-content-detail">POST /submissions · multipart/form-data · file (PDF or DOCX) + optional milestone_id · client receives submissionId immediately · starts polling GET /submissions/:id</div>
+                </div>
+            </div>
+            <div class="flow-step">
+                <div class="flow-num" style="background:rgba(16,185,129,0.15);color:var(--green)">2</div>
+                <div class="flow-content">
+                    <div class="flow-content-title">Backend: save + extract</div>
+                    <div class="flow-content-detail">Save file to Supabase Storage · run pdf-parse or mammoth.js → extracted_text · save submissions row with status='processing' · extracted_text stored in DB</div>
+                </div>
+            </div>
+            <div class="flow-step">
+                <div class="flow-num" style="background:rgba(245,158,11,0.15);color:var(--orange)">3</div>
+                <div class="flow-content">
+                    <div class="flow-content-title">Fire 3 parallel jobs (Promise.all)</div>
+                    <div class="flow-content-detail">All three start at the same time — no sequential dependency</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="flow-branch">
+            <div class="flow-branch-item" style="border-color:rgba(245,158,11,0.3)">
+                <div class="branch-label" style="color:var(--orange)">Job A — ThesisTrack</div>
+                <div class="branch-detail">diff-match-patch + GPT-4o · ~8–12s · saves to thesis_analysis</div>
+            </div>
+            <div class="flow-branch-item" style="border-color:rgba(239,68,68,0.3)">
+                <div class="branch-label" style="color:var(--red)">Job B — Plagiarism</div>
+                <div class="branch-detail">Copyleaks SDK · async via webhook · ~30–90s · saves to plagiarism_reports</div>
+            </div>
+            <div class="flow-branch-item" style="border-color:rgba(6,182,212,0.3)">
+                <div class="branch-label" style="color:var(--cyan)">Job C — Citations</div>
+                <div class="branch-detail">Regex + GPT-4o + Semantic Scholar · ~10–20s · saves to citation_reports</div>
+            </div>
+        </div>
+
+        <div class="flow">
+            <div class="flow-step">
+                <div class="flow-num" style="background:rgba(59,130,246,0.15);color:var(--blue)">4</div>
+                <div class="flow-content">
+                    <div class="flow-content-title">WebSocket events push stage updates <span style="font-size:11px;color:var(--cyan);font-weight:400;">— replaces polling</span></div>
+                    <div class="flow-content-detail">Socket emits submission.stage events as each job completes: stored_file (0.1) → text_extracted (0.25) → thesis_analysis_done (0.60) → citations_done (0.80). Frontend updates a progress bar in real time. No polling loop needed.</div>
+                </div>
+            </div>
+            <div class="flow-step">
+                <div class="flow-num" style="background:rgba(59,130,246,0.15);color:var(--blue)">5</div>
+                <div class="flow-content">
+                    <div class="flow-content-title">submission.complete event fires → client fetches</div>
+                    <div class="flow-content-detail">Socket emits submission.complete when ThesisTrack + Citations are done. Frontend reacts by calling GET /analysis/full/:submissionId — one REST fetch for all results. Plagiarism still shown as "checking..." at this point.</div>
+                </div>
+            </div>
+            <div class="flow-step">
+                <div class="flow-num" style="background:rgba(59,130,246,0.15);color:var(--blue)">6</div>
+                <div class="flow-content">
+                    <div class="flow-content-title">Student sees result</div>
+                    <div class="flow-content-detail">Progress score · diff view · gap report · next steps · citation summary immediately visible. Plagiarism badge shows "Checking originality..." spinner. No page refresh needed.</div>
+                </div>
+            </div>
+            <div class="flow-step">
+                <div class="flow-num" style="background:rgba(59,130,246,0.15);color:var(--blue)">7</div>
+                <div class="flow-content">
+                    <div class="flow-content-title">Professor dashboard updates via WebSocket</div>
+                    <div class="flow-content-detail">Backend looks up student → cohort → professor via enrollments. Emits dashboard.student_update to professor:{profId} room. Professor's dashboard patches the student card live — new progress score, status note — without a full page refresh.</div>
+                </div>
+            </div>
+            <div class="flow-step">
+                <div class="flow-num" style="background:rgba(239,68,68,0.15);color:var(--red)">8</div>
+                <div class="flow-content">
+                    <div class="flow-content-title">Copyleaks webhook fires → plagiarism.ready event</div>
+                    <div class="flow-content-detail">POST /webhooks/copyleaks saves plagiarism_reports. Backend emits plagiarism.ready to user:{studentId} and professor:{profId} rooms. Frontend receives event → re-fetches GET /analysis/plagiarism/:submissionId → plagiarism badge updates from spinner to actual score.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function switchTab(id) {
+        document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.getElementById(id).classList.add('active');
+        event.target.classList.add('active');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+</script>
+</body>
+</html>
