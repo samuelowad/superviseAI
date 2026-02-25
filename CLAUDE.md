@@ -4,48 +4,55 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-SuperviseAI is an AI-powered thesis supervision platform with two roles:
+SuperviseAI is an AI-powered thesis supervision platform with three roles:
+
 - **Professor**: dashboard, student detail view, analytics, milestone management
 - **Student**: thesis upload, automated analysis results, AI coaching (chat + voice), submission history
+- **Admin**: platform governance, professor verification, user moderation, system oversight
 
 The system is a **frontend + backend monorepo-style project** (two separate apps, coordinated here). The `agents/` directory contains staff-level specs that govern implementation.
 
 ## Architecture
 
 ### Frontend (`react-agent.md` spec)
+
 - **Stack**: React 18 + TypeScript, Vite, React Router v6, TanStack Query, Tailwind CSS
-- **Auth**: Supabase JS client (auth only — no direct DB access from client)
+- **Auth**: Backend-issued JWT (no direct DB access from client)
 - **Realtime**: Socket.IO client (primary), with a polling fallback
-- **Structure**: Feature-sliced (`features/auth`, `features/submissions`, `features/coach`, `features/professor`, `features/history`) with a `shared/` layer for API, guards, UI primitives, and DTOs
+- **Structure**: Feature-sliced (`features/auth`, `features/submissions`, `features/coach`, `features/professor`, `features/history`, `features/admin`) with a `shared/` layer for API, guards, UI primitives, and DTOs
 - **API rule**: Zero direct calls from client to AI/plagiarism APIs. All data flows through the backend.
 
 ### Backend (`node-agent.md` spec)
+
 - **Stack**: NestJS + TypeScript, PostgreSQL (via TypeORM), MinIO (S3-compatible object storage), Socket.IO gateway, Multer, Docker Compose
 - **Auth**: Local JWT (`passport-jwt` + `@nestjs/jwt`); bcrypt password hashing; attaches `{ id, email, role }` to each request
-- **Structure**: Domain modules (`auth`, `users`, `cohorts`, `submissions`, `analysis`, `coaching`, `storage`, `parsing`) + an `integrations/` layer (Azure, Copyleaks, Semantic Scholar)
+- **Structure**: Domain modules (`auth`, `users`, `admin`, `cohorts`, `submissions`, `analysis`, `coaching`, `storage`, `parsing`) + an `integrations/` layer (Azure, Copyleaks, Semantic Scholar)
 - **Clean boundary rule**: Controllers handle HTTP contract only; Services own domain logic; Integrations are pure API clients with no business logic; Pipeline handles background steps and event emission
 - **No external BaaS** — fully self-hosted; no Supabase anywhere
 
 ### External Integrations
-| Service | Purpose |
-|---|---|
-| Azure OpenAI (GPT-4o) | Thesis analysis, citation validation, coaching |
-| Azure Speech | STT (`/coaching/voice`) and TTS (`/coaching/tts`) |
-| Azure Cognitive Services | Sentiment / confidence signals |
-| Copyleaks | Plagiarism scanning (async via webhook) |
-| Semantic Scholar | Citation existence check (Layer 3 of citation validation) |
-| Socket.IO | Real-time pipeline event delivery |
+
+| Service                  | Purpose                                                   |
+| ------------------------ | --------------------------------------------------------- |
+| Azure OpenAI (GPT-4o)    | Thesis analysis, citation validation, coaching            |
+| Azure Speech             | STT (`/coaching/voice`) and TTS (`/coaching/tts`)         |
+| Azure Cognitive Services | Sentiment / confidence signals                            |
+| Copyleaks                | Plagiarism scanning (async via webhook)                   |
+| Semantic Scholar         | Citation existence check (Layer 3 of citation validation) |
+| Socket.IO                | Real-time pipeline event delivery                         |
 
 ### Self-Hosted Infrastructure
-| Service | Purpose |
-|---|---|
-| PostgreSQL | Primary database (TypeORM) |
-| MinIO | Object storage for uploaded PDFs/DOCX (S3-compatible) |
-| Docker Compose | Orchestrates `postgres` + `minio` + `nestjs-api` |
+
+| Service        | Purpose                                               |
+| -------------- | ----------------------------------------------------- |
+| PostgreSQL     | Primary database (TypeORM)                            |
+| MinIO          | Object storage for uploaded PDFs/DOCX (S3-compatible) |
+| Docker Compose | Orchestrates `postgres` + `minio` + `nestjs-api`      |
 
 ## Core Data Flow
 
 ### Submission Pipeline
+
 1. `POST /api/v1/submissions` — validate file type/size, upload pdf/docx to MinIO at `theses/{studentId}/{submissionId}.pdf`, store `file_key` in DB, extract text
 2. Insert submission row (`status = processing`, `file_key`, `extracted_text`)
 3. Run in parallel (background): ThesisTrack (GPT-4o), Citation Validator (3-layer), Plagiarism start (Copyleaks)
@@ -53,6 +60,7 @@ The system is a **frontend + backend monorepo-style project** (two separate apps
 5. Copyleaks reports arrive via webhook at `POST /api/v1/webhooks/copyleaks`
 
 ### Frontend Processing UX
+
 - POST submit → navigate to `/student/results/:submissionId` (processing state)
 - Show stepper: Upload → Extract → ThesisTrack → Citations → Done
 - Plagiarism badge shows "pending" until `plagiarism.ready` event
@@ -87,9 +95,11 @@ Three coaching modes: `mock_viva`, `argument_defender`, `socratic` — each has 
 - File type validation (PDF/DOCX only) and max size limit enforced at upload
 - Never render raw HTML from AI responses in the frontend
 - Never store thesis text in `localStorage`
-- Role guards (`@Roles('student')`, `@Roles('professor')`) on every protected route
+- Role guards (`@Roles('student')`, `@Roles('professor')`, `@Roles('admin')`) on every protected route
 - Ownership checks in services (students can only access their own submissions/sessions)
 - Never leak secrets or stack traces to the client
+- Admin cannot be created via public registration; first admin is seeded manually or via controlled bootstrap
+- Professor verification is admin-controlled (`is_verified=true` required before supervision assignment)
 
 ## Key Files / Specs
 
