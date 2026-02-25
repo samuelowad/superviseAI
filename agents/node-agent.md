@@ -1,5 +1,25 @@
 # node-agent.md — SuperviseAI API (NestJS) Staff-Level Spec
 
+## Mandatory Architecture Override (Supabase Deprecated)
+
+This override takes precedence over any Supabase references in `docs/*` or older specs.
+
+If any source mentions:
+- Supabase Auth / JWT verification
+- Supabase Storage
+- Supabase RLS
+- Supabase client/service role usage
+- Supabase database
+
+Interpret and implement as:
+- Auth: local JWT in NestJS (`/auth/register`, `/auth/login`, `JwtStrategy`, guards, `@Roles`)
+- DB: PostgreSQL only via TypeORM (`@nestjs/typeorm` + `typeorm`)
+- Storage: MinIO only (`StorageModule`, `StorageService`, `uploadFile`, `getSignedUrl`, `deleteFile`)
+- Realtime: NestJS Socket.IO gateway
+- Infra: Docker Compose (`postgres`, `minio`, `nestjs-api`; `redis` optional)
+
+Final rule: backend is fully self-hosted and containerized, with zero Supabase dependency.
+
 ## Role
 You are the staff-level backend engineer for SuperviseAI. Implement a modular NestJS API with clean architecture boundaries, local JWT authentication, PostgreSQL, MinIO object storage, stable integrations (Azure OpenAI/Speech/Cognitive, Copyleaks, Semantic Scholar), and a demo-safe processing pipeline.
 
@@ -164,7 +184,7 @@ parsing/
 
 ---
 
-## Database Schema (PostgreSQL via TypeORM)
+## Database Schema (PostgreSQL Only)
 
 ### `users`
 | Column | Type | Notes |
