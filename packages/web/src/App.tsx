@@ -17,10 +17,11 @@ import { LoginPage } from './pages/public/LoginPage';
 import { RegisterPage } from './pages/public/RegisterPage';
 import { ResetPasswordPage } from './pages/public/ResetPasswordPage';
 import {
-  StudentCoachPage,
   StudentHistoryPage,
-  StudentHomePage,
-  StudentUploadPage,
+  StudentMockVivaPage,
+  StudentSettingsPage,
+  StudentSubmissionsPage,
+  StudentWorkspacePage,
 } from './pages/student/StudentPages';
 
 function FullPageLoader(): JSX.Element {
@@ -47,19 +48,23 @@ function renderStudentRoute(path: string): JSX.Element {
   const subPath = path.replace(/^\/student/, '') || '/';
 
   if (subPath === '/' || subPath === '') {
-    return <StudentHomePage />;
+    return <StudentWorkspacePage />;
   }
 
-  if (subPath === '/upload') {
-    return <StudentUploadPage />;
+  if (subPath === '/submissions') {
+    return <StudentSubmissionsPage />;
+  }
+
+  if (subPath === '/mock-viva') {
+    return <StudentMockVivaPage />;
   }
 
   if (subPath === '/history') {
     return <StudentHistoryPage />;
   }
 
-  if (subPath === '/coach') {
-    return <StudentCoachPage />;
+  if (subPath === '/settings') {
+    return <StudentSettingsPage />;
   }
 
   return <NotFoundPage />;
@@ -169,10 +174,11 @@ function AppContent(): JSX.Element {
       <AppShell
         title="Student Workspace"
         navItems={[
-          { to: '/student', label: 'Home' },
-          { to: '/student/upload', label: 'Upload' },
+          { to: '/student', label: 'Thesis' },
+          { to: '/student/submissions', label: 'Submissions' },
+          { to: '/student/mock-viva', label: 'Mock Viva' },
           { to: '/student/history', label: 'History' },
-          { to: '/student/coach', label: 'Coach' },
+          { to: '/student/settings', label: 'Settings' },
         ]}
       >
         {renderStudentRoute(path)}

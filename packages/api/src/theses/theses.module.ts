@@ -4,25 +4,29 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { CitationReport } from '../analysis/entities/citation-report.entity';
 import { PlagiarismReport } from '../analysis/entities/plagiarism-report.entity';
 import { ThesisAnalysis } from '../analysis/entities/thesis-analysis.entity';
+import { CoachingSession } from '../coaching/entities/coaching-session.entity';
 import { StorageModule } from '../storage/storage.module';
-import { Thesis } from '../theses/entities/thesis.entity';
-import { Submission } from './entities/submission.entity';
-import { SubmissionsController } from './submissions.controller';
-import { SubmissionsService } from './submissions.service';
+import { Submission } from '../submissions/entities/submission.entity';
+import { User } from '../users/user.entity';
+import { Thesis } from './entities/thesis.entity';
+import { ThesesController } from './theses.controller';
+import { ThesesService } from './theses.service';
 
 @Module({
   imports: [
+    StorageModule,
     TypeOrmModule.forFeature([
       Thesis,
       Submission,
       ThesisAnalysis,
       CitationReport,
       PlagiarismReport,
+      CoachingSession,
+      User,
     ]),
-    StorageModule,
   ],
-  controllers: [SubmissionsController],
-  providers: [SubmissionsService],
-  exports: [SubmissionsService],
+  controllers: [ThesesController],
+  providers: [ThesesService],
+  exports: [ThesesService, TypeOrmModule],
 })
-export class SubmissionsModule {}
+export class ThesesModule {}

@@ -1166,16 +1166,6 @@ Admin (later phase):
 
 - Oversight only
 
----
-
-If you want next, I can:
-
-- Convert this into a strict API contract document
-- Or rewrite it as a DB schema + endpoint matrix
-- Or turn this into frontend component architecture (React folder structure + component tree)
-
-```
-
 # PHASE 4 — Polish & Real-Time
 
 11. Notifications (optional)
@@ -1210,4 +1200,7 @@ Professor analytics + cohort logic
 
 Phase 4:
 Real-time updates + refinement
+
+```
+
 ```
