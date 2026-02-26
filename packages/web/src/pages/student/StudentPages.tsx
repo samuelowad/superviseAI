@@ -297,6 +297,19 @@ function PdfViewer({ path, title }: { path: string; title: string }): JSX.Elemen
   const [numPages, setNumPages] = useState(0);
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
+  const [pageWidth, setPageWidth] = useState(0);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Measure container width so pages scale to fit (and rescale on drag-resize)
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([entry]) => {
+      setPageWidth(Math.floor(entry.contentRect.width) - 16);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   useEffect(() => {
     let objectUrl: string | null = null;
@@ -324,7 +337,7 @@ function PdfViewer({ path, title }: { path: string; title: string }): JSX.Elemen
   if (!blobUrl) return <div className="pdf-viewer-loading">Loading PDF…</div>;
 
   return (
-    <div className="pdf-viewer-scroll" aria-label={title}>
+    <div className="pdf-viewer-scroll" ref={scrollRef} aria-label={title}>
       <Document
         file={blobUrl}
         onLoadSuccess={({ numPages: n }) => setNumPages(n)}
@@ -332,9 +345,64 @@ function PdfViewer({ path, title }: { path: string; title: string }): JSX.Elemen
         error={<div className="pdf-viewer-error">Could not render PDF.</div>}
       >
         {Array.from({ length: numPages }, (_, i) => (
-          <Page key={i + 1} pageNumber={i + 1} renderAnnotationLayer renderTextLayer />
+          <Page
+            key={i + 1}
+            pageNumber={i + 1}
+            width={pageWidth > 0 ? pageWidth : undefined}
+            renderAnnotationLayer
+            renderTextLayer
+          />
         ))}
       </Document>
+    </div>
+  );
+}
+
+function ResizableSplitView({
+  left,
+  right,
+}: {
+  left: JSX.Element;
+  right: JSX.Element;
+}): JSX.Element {
+  const [splitPct, setSplitPct] = useState(50);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const dragging = useRef(false);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!dragging.current || !containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const raw = ((e.clientX - rect.left) / rect.width) * 100;
+      setSplitPct(Math.max(20, Math.min(80, raw)));
+    };
+    const onUp = () => {
+      dragging.current = false;
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    return () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+  }, []);
+
+  return (
+    <div
+      ref={containerRef}
+      className="pdf-split-container"
+      style={{ gridTemplateColumns: `${splitPct}% 6px 1fr` }}
+    >
+      <div className="pdf-split-pane">{left}</div>
+      <div
+        className="pdf-resize-handle"
+        onMouseDown={() => {
+          dragging.current = true;
+        }}
+        role="separator"
+        aria-label="Drag to resize panels"
+      />
+      <div className="pdf-split-pane">{right}</div>
     </div>
   );
 }
@@ -491,34 +559,38 @@ function CentralPanel({ workspace }: { workspace: WorkspaceResponse }): JSX.Elem
             )
           ) : (
             <div className="pdf-diff-layout-full">
-              <div className="pdf-frame-grid">
-                <div className="pdf-frame-col">
-                  <div className="pdf-frame-label">
-                    <span className="pdf-frame-badge prev">Previous</span>
-                    <span>Version {(workspace.active_submission?.version_number ?? 1) - 1}</span>
-                  </div>
-                  {pdfView?.previous_pdf_url ? (
-                    <PdfViewer path={pdfView.previous_pdf_url} title="Previous PDF version" />
-                  ) : (
-                    <div className="pdf-frame-unavailable">
-                      PDF unavailable for previous version.
+              <ResizableSplitView
+                left={
+                  <div className="pdf-split-pane-inner">
+                    <div className="pdf-frame-label">
+                      <span className="pdf-frame-badge prev">Previous</span>
+                      <span>Version {(workspace.active_submission?.version_number ?? 1) - 1}</span>
                     </div>
-                  )}
-                </div>
-                <div className="pdf-frame-col">
-                  <div className="pdf-frame-label">
-                    <span className="pdf-frame-badge curr">Current</span>
-                    <span>Version {workspace.active_submission?.version_number ?? 1}</span>
+                    {pdfView?.previous_pdf_url ? (
+                      <PdfViewer path={pdfView.previous_pdf_url} title="Previous PDF version" />
+                    ) : (
+                      <div className="pdf-frame-unavailable">
+                        PDF unavailable for previous version.
+                      </div>
+                    )}
                   </div>
-                  {pdfView?.current_pdf_url ? (
-                    <PdfViewer path={pdfView.current_pdf_url} title="Current PDF version" />
-                  ) : (
-                    <div className="pdf-frame-unavailable">
-                      PDF unavailable for current version.
+                }
+                right={
+                  <div className="pdf-split-pane-inner">
+                    <div className="pdf-frame-label">
+                      <span className="pdf-frame-badge curr">Current</span>
+                      <span>Version {workspace.active_submission?.version_number ?? 1}</span>
                     </div>
-                  )}
-                </div>
-              </div>
+                    {pdfView?.current_pdf_url ? (
+                      <PdfViewer path={pdfView.current_pdf_url} title="Current PDF version" />
+                    ) : (
+                      <div className="pdf-frame-unavailable">
+                        PDF unavailable for current version.
+                      </div>
+                    )}
+                  </div>
+                }
+              />
 
               {(pdfView?.changes?.filter(
                 (c) => c.type !== 'edit' || !c.preview.includes('Binary PDF'),
@@ -550,47 +622,55 @@ function RightPanel({ workspace }: { workspace: WorkspaceResponse }): JSX.Elemen
     <aside className="workspace-right-panel">
       <details open>
         <summary>Plagiarism Report</summary>
-        <p>Similarity: {workspace.right_panel.plagiarism.similarity_percent}%</p>
-        <p>Risk Level: {workspace.right_panel.plagiarism.risk_level}</p>
-        <ul>
-          {workspace.right_panel.plagiarism.flagged_sections.map((section) => (
-            <li key={section}>{section}</li>
-          ))}
-        </ul>
+        <div className="right-panel-card-body">
+          <p>Similarity: {workspace.right_panel.plagiarism.similarity_percent}%</p>
+          <p>Risk Level: {workspace.right_panel.plagiarism.risk_level}</p>
+          <ul>
+            {workspace.right_panel.plagiarism.flagged_sections.map((section) => (
+              <li key={section}>{section}</li>
+            ))}
+          </ul>
+        </div>
       </details>
 
       <details>
         <summary>Citation & Reference Validator</summary>
-        <p>Missing citations:</p>
-        <ul>
-          {workspace.right_panel.citations.missing_citations.map((item) => (
-            <li key={item}>{item}</li>
-          ))}
-        </ul>
-        <p>Broken references:</p>
-        <ul>
-          {workspace.right_panel.citations.broken_references.map((item) => (
-            <li key={item}>{item}</li>
-          ))}
-        </ul>
-        <p>Formatting errors:</p>
-        <ul>
-          {workspace.right_panel.citations.formatting_errors.map((item) => (
-            <li key={item}>{item}</li>
-          ))}
-        </ul>
+        <div className="right-panel-card-body">
+          <p>Missing citations:</p>
+          <ul>
+            {workspace.right_panel.citations.missing_citations.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+          <p>Broken references:</p>
+          <ul>
+            {workspace.right_panel.citations.broken_references.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+          <p>Formatting errors:</p>
+          <ul>
+            {workspace.right_panel.citations.formatting_errors.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </div>
       </details>
 
       <details>
         <summary>Milestone Tracker</summary>
-        <p>{workspace.right_panel.milestone.next_milestone}</p>
-        <p>Due in {workspace.right_panel.milestone.due_in_days} day(s)</p>
+        <div className="right-panel-card-body">
+          <p>{workspace.right_panel.milestone.next_milestone}</p>
+          <p>Due in {workspace.right_panel.milestone.due_in_days} day(s)</p>
+        </div>
       </details>
 
       <details>
         <summary>Latest Professor Feedback</summary>
-        <p>{workspace.right_panel.latest_professor_feedback.text}</p>
-        <p>{formatDate(workspace.right_panel.latest_professor_feedback.timestamp)}</p>
+        <div className="right-panel-card-body">
+          <p>{workspace.right_panel.latest_professor_feedback.text}</p>
+          <p>{formatDate(workspace.right_panel.latest_professor_feedback.timestamp)}</p>
+        </div>
       </details>
     </aside>
   );
