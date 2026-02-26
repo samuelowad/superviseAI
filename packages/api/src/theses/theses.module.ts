@@ -5,7 +5,6 @@ import { CitationReport } from '../analysis/entities/citation-report.entity';
 import { PlagiarismReport } from '../analysis/entities/plagiarism-report.entity';
 import { ThesisAnalysis } from '../analysis/entities/thesis-analysis.entity';
 import { CoachingSession } from '../coaching/entities/coaching-session.entity';
-import { StorageModule } from '../storage/storage.module';
 import { Submission } from '../submissions/entities/submission.entity';
 import { User } from '../users/user.entity';
 import { Thesis } from './entities/thesis.entity';
@@ -14,7 +13,6 @@ import { ThesesService } from './theses.service';
 
 @Module({
   imports: [
-    StorageModule,
     TypeOrmModule.forFeature([
       Thesis,
       Submission,

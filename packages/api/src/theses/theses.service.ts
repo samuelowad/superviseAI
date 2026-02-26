@@ -7,7 +7,6 @@ import { CitationReport } from '../analysis/entities/citation-report.entity';
 import { PlagiarismReport } from '../analysis/entities/plagiarism-report.entity';
 import { ThesisAnalysis } from '../analysis/entities/thesis-analysis.entity';
 import { CoachingSession } from '../coaching/entities/coaching-session.entity';
-import { StorageService } from '../storage/storage.service';
 import { Submission, SubmissionStatus } from '../submissions/entities/submission.entity';
 import { User, UserRole } from '../users/user.entity';
 import { CreateThesisDto } from './dto/create-thesis.dto';
@@ -32,7 +31,6 @@ export class ThesesService {
     private readonly coachingSessionRepository: Repository<CoachingSession>,
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
-    private readonly storageService: StorageService,
   ) {}
 
   async create(studentId: string, dto: CreateThesisDto): Promise<{ thesis: Thesis }> {
@@ -177,7 +175,7 @@ export class ThesesService {
     const showVersionComparison = Boolean(
       activeSubmission && previousSubmission && analysis && !analysis.isFirstSubmission,
     );
-    const pdfView = await this.buildPdfView(activeSubmission, previousSubmission, analysis);
+    const pdfView = this.buildPdfViewPaths(activeSubmission, previousSubmission, analysis);
     const prDiff = this.buildPullRequestDiff(
       previousSubmission?.extractedText ?? '',
       activeSubmission?.extractedText ?? '',
@@ -329,11 +327,11 @@ export class ThesesService {
     }
   }
 
-  private async buildPdfView(
+  private buildPdfViewPaths(
     activeSubmission: Submission | null,
     previousSubmission: Submission | null,
     analysis: ThesisAnalysis | null,
-  ): Promise<{
+  ): {
     previous_pdf_url: string | null;
     current_pdf_url: string | null;
     changes: Array<{
@@ -342,35 +340,23 @@ export class ThesesService {
       type: 'addition' | 'removal' | 'edit';
       preview: string;
     }>;
-  }> {
+  } {
     const changes = this.buildChangeMarkers(
       analysis?.previousExcerpt ?? '',
       analysis?.currentExcerpt ?? '',
     );
-    if (!activeSubmission || !previousSubmission) {
-      return { previous_pdf_url: null, current_pdf_url: null, changes };
-    }
 
-    const previousIsPdf = previousSubmission.fileKey.toLowerCase().endsWith('.pdf');
-    const currentIsPdf = activeSubmission.fileKey.toLowerCase().endsWith('.pdf');
-    if (!previousIsPdf || !currentIsPdf) {
-      return { previous_pdf_url: null, current_pdf_url: null, changes };
-    }
+    const toProxyPath = (submission: Submission | null): string | null => {
+      if (!submission) return null;
+      if (!submission.fileKey.toLowerCase().endsWith('.pdf')) return null;
+      return `/submissions/${submission.id}/file`;
+    };
 
-    try {
-      const [previousPdfUrl, currentPdfUrl] = await Promise.all([
-        this.storageService.getSignedUrl(previousSubmission.fileKey),
-        this.storageService.getSignedUrl(activeSubmission.fileKey),
-      ]);
-
-      return {
-        previous_pdf_url: previousPdfUrl,
-        current_pdf_url: currentPdfUrl,
-        changes,
-      };
-    } catch {
-      return { previous_pdf_url: null, current_pdf_url: null, changes };
-    }
+    return {
+      previous_pdf_url: toProxyPath(previousSubmission),
+      current_pdf_url: toProxyPath(activeSubmission),
+      changes,
+    };
   }
 
   private buildChangeMarkers(

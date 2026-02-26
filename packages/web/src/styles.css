@@ -979,6 +979,45 @@ a {
   display: block;
 }
 
+/* ── PDF.js viewer (react-pdf) ── */
+.pdf-viewer-scroll {
+  height: 600px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #525659;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.75rem 0;
+  gap: 0.5rem;
+}
+
+.pdf-viewer-scroll .react-pdf__Document {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.pdf-viewer-scroll .react-pdf__Page {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+}
+
+.pdf-viewer-scroll .react-pdf__Page canvas {
+  max-width: 100%;
+  height: auto !important;
+}
+
+.pdf-viewer-loading,
+.pdf-viewer-error {
+  display: grid;
+  place-items: center;
+  height: 200px;
+  color: #cbd5e1;
+  font-size: 0.9rem;
+}
+
 .pdf-frame-unavailable {
   display: grid;
   place-items: center;

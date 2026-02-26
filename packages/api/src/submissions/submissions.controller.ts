@@ -5,6 +5,7 @@ import {
   Param,
   Post,
   Req,
+  StreamableFile,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -38,6 +39,22 @@ export class SubmissionsController {
     }
 
     return this.submissionsService.upload(req.user.id, file);
+  }
+
+  @Get(':id/file')
+  async streamFile(
+    @Req() req: AuthenticatedRequest,
+    @Param('id') submissionId: string,
+  ): Promise<StreamableFile> {
+    const { buffer, contentType, filename } = await this.submissionsService.streamFile(
+      req.user.id,
+      submissionId,
+    );
+
+    return new StreamableFile(buffer, {
+      type: contentType,
+      disposition: `inline; filename="${filename}"`,
+    });
   }
 
   @Get(':id')

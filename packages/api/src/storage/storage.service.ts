@@ -76,6 +76,30 @@ export class StorageService {
     );
   }
 
+  async getFileBuffer(key: string): Promise<{ buffer: Buffer; contentType: string }> {
+    const response = await this.client.send(
+      new GetObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+      }),
+    );
+
+    const body = response.Body;
+    if (!body) {
+      throw new Error('Empty response body from storage.');
+    }
+
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of body as AsyncIterable<Uint8Array>) {
+      chunks.push(chunk);
+    }
+
+    return {
+      buffer: Buffer.concat(chunks),
+      contentType: response.ContentType ?? 'application/octet-stream',
+    };
+  }
+
   async deleteFile(key: string): Promise<void> {
     await this.client.send(
       new DeleteObjectCommand({

@@ -126,6 +126,27 @@ export class SubmissionsService {
     }
   }
 
+  async streamFile(
+    studentId: string,
+    submissionId: string,
+  ): Promise<{ buffer: Buffer; contentType: string; filename: string }> {
+    const submission = await this.submissionRepository.findOne({ where: { id: submissionId } });
+    if (!submission) {
+      throw new NotFoundException('Submission not found.');
+    }
+
+    const thesis = await this.thesisRepository.findOne({
+      where: { id: submission.thesisId, studentId },
+    });
+    if (!thesis) {
+      throw new NotFoundException('Submission not found for this student.');
+    }
+
+    const { buffer, contentType } = await this.storageService.getFileBuffer(submission.fileKey);
+
+    return { buffer, contentType, filename: submission.fileName };
+  }
+
   async getOne(studentId: string, submissionId: string): Promise<Record<string, unknown>> {
     const submission = await this.submissionRepository.findOne({ where: { id: submissionId } });
     if (!submission) {

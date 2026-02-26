@@ -1,8 +1,17 @@
 import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { Document, Page, pdfjs } from 'react-pdf';
+import 'react-pdf/dist/Page/AnnotationLayer.css';
+import 'react-pdf/dist/Page/TextLayer.css';
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.js?url';
 
 import { getAccessToken } from '../../auth/storage';
 import { apiRequest } from '../../lib/api';
 import { useNavigate } from '../../lib/router';
+
+pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+
+const API_BASE =
+  (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:3000/api/v1';
 
 interface WorkspaceResponse {
   thesis: null | {
@@ -284,6 +293,52 @@ function MetricsRow({ workspace }: { workspace: WorkspaceResponse }): JSX.Elemen
   );
 }
 
+function PdfViewer({ path, title }: { path: string; title: string }): JSX.Element {
+  const [numPages, setNumPages] = useState(0);
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState(false);
+
+  useEffect(() => {
+    let objectUrl: string | null = null;
+    const token = getAccessToken();
+
+    fetch(`${API_BASE}${path}`, {
+      headers: { Authorization: `Bearer ${token ?? ''}` },
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.blob();
+      })
+      .then((blob) => {
+        objectUrl = URL.createObjectURL(blob);
+        setBlobUrl(objectUrl);
+      })
+      .catch(() => setLoadError(true));
+
+    return () => {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [path]);
+
+  if (loadError) return <div className="pdf-viewer-error">Could not load PDF.</div>;
+  if (!blobUrl) return <div className="pdf-viewer-loading">Loading PDF…</div>;
+
+  return (
+    <div className="pdf-viewer-scroll" aria-label={title}>
+      <Document
+        file={blobUrl}
+        onLoadSuccess={({ numPages: n }) => setNumPages(n)}
+        loading={<div className="pdf-viewer-loading">Rendering…</div>}
+        error={<div className="pdf-viewer-error">Could not render PDF.</div>}
+      >
+        {Array.from({ length: numPages }, (_, i) => (
+          <Page key={i + 1} pageNumber={i + 1} renderAnnotationLayer renderTextLayer />
+        ))}
+      </Document>
+    </div>
+  );
+}
+
 function CentralPanel({ workspace }: { workspace: WorkspaceResponse }): JSX.Element {
   const comparison = workspace.central_panel.version_comparison;
   const pdfView = comparison?.pdf_view;
@@ -443,11 +498,7 @@ function CentralPanel({ workspace }: { workspace: WorkspaceResponse }): JSX.Elem
                     <span>Version {(workspace.active_submission?.version_number ?? 1) - 1}</span>
                   </div>
                   {pdfView?.previous_pdf_url ? (
-                    <iframe
-                      src={pdfView.previous_pdf_url}
-                      title="Previous PDF version"
-                      className="pdf-iframe"
-                    />
+                    <PdfViewer path={pdfView.previous_pdf_url} title="Previous PDF version" />
                   ) : (
                     <div className="pdf-frame-unavailable">
                       PDF unavailable for previous version.
@@ -460,11 +511,7 @@ function CentralPanel({ workspace }: { workspace: WorkspaceResponse }): JSX.Elem
                     <span>Version {workspace.active_submission?.version_number ?? 1}</span>
                   </div>
                   {pdfView?.current_pdf_url ? (
-                    <iframe
-                      src={pdfView.current_pdf_url}
-                      title="Current PDF version"
-                      className="pdf-iframe"
-                    />
+                    <PdfViewer path={pdfView.current_pdf_url} title="Current PDF version" />
                   ) : (
                     <div className="pdf-frame-unavailable">
                       PDF unavailable for current version.
