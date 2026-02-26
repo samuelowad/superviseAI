@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { join } from 'path';
 
 import { AnalysisModule } from './analysis/analysis.module';
 import { AppController } from './app.controller';
@@ -13,6 +14,7 @@ import { MailModule } from './mail/mail.module';
 import { MilestonesModule } from './milestones/milestones.module';
 import { StorageModule } from './storage/storage.module';
 import { SubmissionsModule } from './submissions/submissions.module';
+import { ThesesModule } from './theses/theses.module';
 import { UsersModule } from './users/users.module';
 
 @Module({
@@ -22,13 +24,16 @@ import { UsersModule } from './users/users.module';
       type: 'postgres',
       url: process.env.DATABASE_URL,
       autoLoadEntities: true,
-      synchronize: process.env.NODE_ENV !== 'production',
+      migrations: [join(__dirname, 'database/migrations/*{.ts,.js}')],
+      migrationsRun: true,
+      synchronize: false,
       logging: process.env.NODE_ENV !== 'production',
     }),
     UsersModule,
     AuthModule,
     MailModule,
     StorageModule,
+    ThesesModule,
     SubmissionsModule,
     AnalysisModule,
     CoachingModule,

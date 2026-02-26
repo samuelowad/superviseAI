@@ -1,12 +1,26 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Req, UseGuards } from '@nestjs/common';
 
+import { Roles } from '../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../common/guards/roles.guard';
+import { UserRole } from '../users/user.entity';
+import { AnalysisService } from './analysis.service';
+
+interface AuthenticatedRequest {
+  user: { id: string };
+}
 
 @Controller('analysis')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(UserRole.STUDENT)
 export class AnalysisController {
-  @Get('status')
-  status(): { route: string; status: string } {
-    return { route: 'analysis', status: 'stub_ready_phase_0' };
+  constructor(private readonly analysisService: AnalysisService) {}
+
+  @Get('full/:submissionId')
+  getFull(
+    @Req() req: AuthenticatedRequest,
+    @Param('submissionId') submissionId: string,
+  ): Promise<Record<string, unknown>> {
+    return this.analysisService.getFullAnalysis(req.user.id, submissionId);
   }
 }
