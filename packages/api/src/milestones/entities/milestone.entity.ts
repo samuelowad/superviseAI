@@ -11,8 +11,8 @@ export class Milestone {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ name: 'professor_id', type: 'uuid' })
-  professorId!: string;
+  @Column({ name: 'cohort_id', type: 'uuid' })
+  cohortId!: string;
 
   @Column({ type: 'text' })
   title!: string;

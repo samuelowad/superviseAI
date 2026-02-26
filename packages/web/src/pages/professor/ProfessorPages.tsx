@@ -7,6 +7,7 @@ import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.js?url';
 import { getAccessToken } from '../../auth/storage';
 import { apiRequest } from '../../lib/api';
 import { Link } from '../../lib/router';
+import { subscribeRealtime } from '../../lib/socket';
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
@@ -41,16 +42,31 @@ interface ProfessorDashboardResponse {
 
 interface MilestoneRecord {
   id: string;
+  cohort_id: string;
+  cohort_name: string;
   title: string;
   stage: string;
   due_date: string;
   due_in_days: number | null;
+  completion: {
+    total_students: number;
+    completed_students: number;
+    pending_students: number;
+  };
   created_at: string;
   updated_at: string;
 }
 
 interface MilestonesResponse {
   milestones: MilestoneRecord[];
+}
+
+interface CohortRecord {
+  id: string;
+  name: string;
+  citation_style: string;
+  student_count: number;
+  created_at: string;
 }
 
 interface ProfessorAnalyticsResponse {
@@ -188,6 +204,10 @@ interface MilestoneDraft {
   title: string;
   stage: string;
   due_date: string;
+}
+
+interface CreateMilestoneInput extends MilestoneDraft {
+  cohort_id: string;
 }
 
 function formatDate(value: string | null): string {
@@ -371,36 +391,36 @@ export function ProfessorDashboardPage(): JSX.Element {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const loadDashboard = useCallback(async (): Promise<void> => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await apiRequest<ProfessorDashboardResponse>('/dashboard/professor');
+      setData(response);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load dashboard.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    let active = true;
+    void loadDashboard();
+  }, [loadDashboard]);
 
-    const load = async (): Promise<void> => {
-      setLoading(true);
-      setError(null);
-      try {
-        const response = await apiRequest<ProfessorDashboardResponse>('/dashboard/professor');
-        if (!active) {
-          return;
-        }
-        setData(response);
-      } catch (err) {
-        if (!active) {
-          return;
-        }
-        setError(err instanceof Error ? err.message : 'Failed to load dashboard.');
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
-      }
-    };
-
-    void load();
+  useEffect(() => {
+    const unsubDashboard = subscribeRealtime('dashboard.student_update', () => {
+      void loadDashboard();
+    });
+    const unsubPlagiarism = subscribeRealtime('plagiarism.ready', () => {
+      void loadDashboard();
+    });
 
     return () => {
-      active = false;
+      unsubDashboard();
+      unsubPlagiarism();
     };
-  }, []);
+  }, [loadDashboard]);
 
   if (loading) {
     return <LoadingCard message="Loading professor dashboard..." />;
@@ -507,38 +527,38 @@ export function ProfessorStudentsPage(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
 
+  const loadStudents = useCallback(async (): Promise<void> => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await apiRequest<{ students: ProfessorStudentRow[] }>(
+        '/dashboard/professor/students',
+      );
+      setStudents(response.students);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load students.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    let active = true;
+    void loadStudents();
+  }, [loadStudents]);
 
-    const load = async (): Promise<void> => {
-      setLoading(true);
-      setError(null);
-      try {
-        const response = await apiRequest<{ students: ProfessorStudentRow[] }>(
-          '/dashboard/professor/students',
-        );
-        if (!active) {
-          return;
-        }
-        setStudents(response.students);
-      } catch (err) {
-        if (!active) {
-          return;
-        }
-        setError(err instanceof Error ? err.message : 'Failed to load students.');
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
-      }
-    };
-
-    void load();
+  useEffect(() => {
+    const unsubDashboard = subscribeRealtime('dashboard.student_update', () => {
+      void loadStudents();
+    });
+    const unsubPlagiarism = subscribeRealtime('plagiarism.ready', () => {
+      void loadStudents();
+    });
 
     return () => {
-      active = false;
+      unsubDashboard();
+      unsubPlagiarism();
     };
-  }, []);
+  }, [loadStudents]);
 
   const filtered = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -633,26 +653,45 @@ export function ProfessorStudentsPage(): JSX.Element {
 
 export function ProfessorMilestonesPage(): JSX.Element {
   const [milestones, setMilestones] = useState<MilestoneRecord[]>([]);
+  const [cohorts, setCohorts] = useState<CohortRecord[]>([]);
+  const [selectedCohortId, setSelectedCohortId] = useState<string>('all');
   const [drafts, setDrafts] = useState<Record<string, MilestoneDraft>>({});
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [creatingCohort, setCreatingCohort] = useState(false);
+  const [cohortName, setCohortName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [createInput, setCreateInput] = useState<MilestoneDraft>({
+  const [createInput, setCreateInput] = useState<CreateMilestoneInput>({
+    cohort_id: '',
     title: '',
     stage: 'draft_review',
     due_date: '',
   });
 
-  async function loadMilestones(): Promise<void> {
+  const loadMilestones = useCallback(async (): Promise<void> => {
     setLoading(true);
     setError(null);
     try {
-      const response = await apiRequest<MilestonesResponse>('/milestones');
-      setMilestones(response.milestones);
+      const [cohortsResponse, milestonesResponse] = await Promise.all([
+        apiRequest<{ cohorts: CohortRecord[] }>('/cohorts'),
+        apiRequest<MilestonesResponse>('/milestones'),
+      ]);
+
+      setCohorts(cohortsResponse.cohorts);
+      setMilestones(milestonesResponse.milestones);
+
+      if (cohortsResponse.cohorts.length > 0) {
+        const fallbackCohortId = cohortsResponse.cohorts[0].id;
+        setCreateInput((previous) => ({
+          ...previous,
+          cohort_id: previous.cohort_id || fallbackCohortId,
+        }));
+      }
+
       const nextDrafts: Record<string, MilestoneDraft> = {};
-      for (const milestone of response.milestones) {
+      for (const milestone of milestonesResponse.milestones) {
         nextDrafts[milestone.id] = {
           title: milestone.title,
           stage: milestone.stage,
@@ -665,11 +704,11 @@ export function ProfessorMilestonesPage(): JSX.Element {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
     void loadMilestones();
-  }, []);
+  }, [loadMilestones]);
 
   async function handleCreate(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -677,18 +716,58 @@ export function ProfessorMilestonesPage(): JSX.Element {
     setError(null);
     setNotice(null);
 
+    if (!createInput.cohort_id) {
+      setCreating(false);
+      setError('Select a cohort before creating a milestone.');
+      return;
+    }
+
     try {
       await apiRequest<{ milestone: MilestoneRecord }>('/milestones', {
         method: 'POST',
         body: createInput,
       });
-      setCreateInput({ title: '', stage: 'draft_review', due_date: '' });
+      setCreateInput((previous) => ({
+        ...previous,
+        title: '',
+        stage: 'draft_review',
+        due_date: '',
+      }));
       setNotice('Milestone created.');
       await loadMilestones();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not create milestone.');
     } finally {
       setCreating(false);
+    }
+  }
+
+  async function handleCreateCohort(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    const name = cohortName.trim();
+    if (!name) {
+      setError('Cohort name is required.');
+      return;
+    }
+
+    setCreatingCohort(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await apiRequest<{ cohort: CohortRecord }>('/cohorts', {
+        method: 'POST',
+        body: {
+          name,
+          citation_style: 'APA',
+        },
+      });
+      setCohortName('');
+      setNotice('Cohort created.');
+      await loadMilestones();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not create cohort.');
+    } finally {
+      setCreatingCohort(false);
     }
   }
 
@@ -716,11 +795,48 @@ export function ProfessorMilestonesPage(): JSX.Element {
     }
   }
 
+  const visibleMilestones = useMemo(() => {
+    if (selectedCohortId === 'all') {
+      return milestones;
+    }
+
+    return milestones.filter((milestone) => milestone.cohort_id === selectedCohortId);
+  }, [milestones, selectedCohortId]);
+
   return (
     <div className="professor-page-grid">
       <section className="placeholder-card">
+        <h2>Create Cohort</h2>
+        <form className="professor-form-grid" onSubmit={(event) => void handleCreateCohort(event)}>
+          <input
+            className="text-field"
+            placeholder="Cohort name"
+            value={cohortName}
+            onChange={(event) => setCohortName(event.target.value)}
+          />
+          <button type="submit" className="btn btn-muted" disabled={creatingCohort}>
+            {creatingCohort ? 'Creating...' : 'Create Cohort'}
+          </button>
+        </form>
+      </section>
+
+      <section className="placeholder-card">
         <h2>Create Milestone</h2>
         <form className="professor-form-grid" onSubmit={(event) => void handleCreate(event)}>
+          <select
+            className="text-field"
+            value={createInput.cohort_id}
+            onChange={(event) =>
+              setCreateInput((previous) => ({ ...previous, cohort_id: event.target.value }))
+            }
+          >
+            {cohorts.length === 0 ? <option value="">No cohorts available</option> : null}
+            {cohorts.map((cohort) => (
+              <option key={cohort.id} value={cohort.id}>
+                {cohort.name} ({cohort.student_count} students)
+              </option>
+            ))}
+          </select>
           <input
             className="text-field"
             placeholder="Milestone title"
@@ -759,24 +875,40 @@ export function ProfessorMilestonesPage(): JSX.Element {
       </section>
 
       <section className="placeholder-card">
-        <h2>Your Milestones</h2>
+        <div className="professor-section-header">
+          <h2>Your Milestones</h2>
+          <select
+            className="text-field"
+            value={selectedCohortId}
+            onChange={(event) => setSelectedCohortId(event.target.value)}
+          >
+            <option value="all">All Cohorts</option>
+            {cohorts.map((cohort) => (
+              <option key={cohort.id} value={cohort.id}>
+                {cohort.name}
+              </option>
+            ))}
+          </select>
+        </div>
         {loading ? (
           <p>Loading milestones...</p>
-        ) : milestones.length === 0 ? (
+        ) : visibleMilestones.length === 0 ? (
           <p>No milestones created yet.</p>
         ) : (
           <table className="simple-table">
             <thead>
               <tr>
+                <th>Cohort</th>
                 <th>Title</th>
                 <th>Stage</th>
                 <th>Due Date</th>
+                <th>Completion</th>
                 <th>Due In</th>
                 <th>Save</th>
               </tr>
             </thead>
             <tbody>
-              {milestones.map((milestone) => {
+              {visibleMilestones.map((milestone) => {
                 const draft = drafts[milestone.id] ?? {
                   title: milestone.title,
                   stage: milestone.stage,
@@ -785,6 +917,7 @@ export function ProfessorMilestonesPage(): JSX.Element {
 
                 return (
                   <tr key={milestone.id}>
+                    <td>{milestone.cohort_name}</td>
                     <td>
                       <input
                         className="text-field"
@@ -829,6 +962,10 @@ export function ProfessorMilestonesPage(): JSX.Element {
                       />
                     </td>
                     <td>
+                      {milestone.completion.completed_students}/
+                      {milestone.completion.total_students} complete
+                    </td>
+                    <td>
                       {milestone.due_in_days === null
                         ? 'N/A'
                         : milestone.due_in_days < 0
@@ -857,7 +994,6 @@ export function ProfessorMilestonesPage(): JSX.Element {
     </div>
   );
 }
-
 export function ProfessorAnalyticsPage(): JSX.Element {
   const [data, setData] = useState<ProfessorAnalyticsResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1047,6 +1183,26 @@ export function ProfessorStudentDetailPage({ thesisId }: { thesisId: string }): 
   useEffect(() => {
     void loadDetail();
   }, [loadDetail]);
+
+  useEffect(() => {
+    const unsubDashboard = subscribeRealtime<{ studentId?: string }>(
+      'dashboard.student_update',
+      (payload) => {
+        if (detail?.student.id && payload.studentId && payload.studentId !== detail.student.id) {
+          return;
+        }
+        void loadDetail();
+      },
+    );
+    const unsubPlagiarism = subscribeRealtime('plagiarism.ready', () => {
+      void loadDetail();
+    });
+
+    return () => {
+      unsubDashboard();
+      unsubPlagiarism();
+    };
+  }, [detail?.student.id, loadDetail]);
 
   useEffect(() => {
     const comparison = detail?.comparison;

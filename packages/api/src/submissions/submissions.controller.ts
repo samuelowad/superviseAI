@@ -1,4 +1,5 @@
 import {
+  Body,
   BadRequestException,
   Controller,
   Get,
@@ -16,6 +17,7 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { UserRole } from '../users/user.entity';
+import { UploadSubmissionDto } from './dto/upload-submission.dto';
 import { SubmissionsService } from './submissions.service';
 
 interface AuthenticatedRequest {
@@ -30,15 +32,27 @@ export class SubmissionsController {
   @Post('upload')
   @Roles(UserRole.STUDENT)
   @UseInterceptors(FileInterceptor('file'))
+  uploadLegacy(
+    @Req() req: AuthenticatedRequest,
+    @Body() dto: UploadSubmissionDto,
+    @UploadedFile() file: { originalname: string; mimetype: string; size: number; buffer: Buffer },
+  ): Promise<{ submission_id: string; status: string }> {
+    return this.upload(req, dto, file);
+  }
+
+  @Post()
+  @Roles(UserRole.STUDENT)
+  @UseInterceptors(FileInterceptor('file'))
   upload(
     @Req() req: AuthenticatedRequest,
+    @Body() dto: UploadSubmissionDto,
     @UploadedFile() file: { originalname: string; mimetype: string; size: number; buffer: Buffer },
   ): Promise<{ submission_id: string; status: string }> {
     if (!file?.buffer) {
       throw new BadRequestException('File is required.');
     }
 
-    return this.submissionsService.upload(req.user.id, file);
+    return this.submissionsService.upload(req.user.id, file, dto.milestone_id);
   }
 
   @Get(':id/file')

@@ -7,6 +7,7 @@ import { CitationReport } from '../analysis/entities/citation-report.entity';
 import { PlagiarismReport } from '../analysis/entities/plagiarism-report.entity';
 import { ThesisAnalysis } from '../analysis/entities/thesis-analysis.entity';
 import { CoachingSession } from '../coaching/entities/coaching-session.entity';
+import { CohortsService } from '../cohorts/cohorts.service';
 import { Submission, SubmissionStatus } from '../submissions/entities/submission.entity';
 import { User, UserRole } from '../users/user.entity';
 import { CreateThesisDto } from './dto/create-thesis.dto';
@@ -52,6 +53,7 @@ export class ThesesService {
     private readonly coachingSessionRepository: Repository<CoachingSession>,
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    private readonly cohortsService: CohortsService,
   ) {}
 
   async create(studentId: string, dto: CreateThesisDto): Promise<{ thesis: Thesis }> {
@@ -78,7 +80,15 @@ export class ThesesService {
       latestFeedbackAt: null,
     });
 
-    return { thesis: await this.thesisRepository.save(thesis) };
+    const savedThesis = await this.thesisRepository.save(thesis);
+    if (savedThesis.supervisorId) {
+      await this.cohortsService.ensureEnrollmentInProfessorDefaultCohort(
+        savedThesis.supervisorId,
+        savedThesis.studentId,
+      );
+    }
+
+    return { thesis: savedThesis };
   }
 
   async searchProfessors(query: string): Promise<{ professors: Array<Record<string, string>> }> {
@@ -142,6 +152,12 @@ export class ThesesService {
     }
 
     thesis.status = ThesisStatus.SUBMITTED_TO_PROF;
+    if (thesis.supervisorId) {
+      await this.cohortsService.ensureEnrollmentInProfessorDefaultCohort(
+        thesis.supervisorId,
+        thesis.studentId,
+      );
+    }
     await this.thesisRepository.save(thesis);
 
     return { status: thesis.status };
@@ -360,12 +376,7 @@ export class ThesesService {
     professorId: string,
     thesisId: string,
   ): Promise<Record<string, unknown>> {
-    const thesis = await this.thesisRepository.findOne({
-      where: { id: thesisId, supervisorId: professorId },
-    });
-    if (!thesis) {
-      throw new NotFoundException('Thesis not found for this professor.');
-    }
+    const thesis = await this.findProfessorScopedThesisById(professorId, thesisId);
 
     const student = await this.userRepository.findOne({
       where: { id: thesis.studentId },
@@ -580,12 +591,7 @@ export class ThesesService {
     thesisId: string,
     input: { action: ReviewAction; feedback?: string },
   ): Promise<Record<string, unknown>> {
-    const thesis = await this.thesisRepository.findOne({
-      where: { id: thesisId, supervisorId: professorId },
-    });
-    if (!thesis) {
-      throw new NotFoundException('Thesis not found for this professor.');
-    }
+    const thesis = await this.findProfessorScopedThesisById(professorId, thesisId);
 
     const feedback = input.feedback?.trim() ?? '';
     if (
@@ -730,10 +736,7 @@ export class ThesesService {
   }
 
   private async buildProfessorSnapshots(professorId: string): Promise<ProfessorStudentSnapshot[]> {
-    const theses = await this.thesisRepository.find({
-      where: { supervisorId: professorId },
-      order: { updatedAt: 'DESC' },
-    });
+    const theses = await this.getProfessorScopedTheses(professorId);
 
     if (theses.length === 0) {
       return [];
@@ -805,6 +808,68 @@ export class ThesesService {
         risk,
       };
     });
+  }
+
+  private async getProfessorScopedTheses(professorId: string): Promise<Thesis[]> {
+    const studentIds = await this.cohortsService.getProfessorScopedStudentIds(professorId);
+    const enrolledTheses = studentIds.length
+      ? await this.thesisRepository.find({
+          where: { studentId: In(studentIds) },
+          order: { updatedAt: 'DESC' },
+        })
+      : [];
+
+    const enrolledStudentIds = new Set(enrolledTheses.map((thesis) => thesis.studentId));
+    const legacySupervisorTheses = await this.thesisRepository.find({
+      where: { supervisorId: professorId },
+      order: { updatedAt: 'DESC' },
+    });
+
+    const backfillTargets = legacySupervisorTheses.filter(
+      (thesis) => !enrolledStudentIds.has(thesis.studentId),
+    );
+    await Promise.all(
+      backfillTargets.map((thesis) =>
+        this.cohortsService.ensureEnrollmentInProfessorDefaultCohort(professorId, thesis.studentId),
+      ),
+    );
+
+    const uniqueById = new Map<string, Thesis>();
+    for (const thesis of [...enrolledTheses, ...legacySupervisorTheses]) {
+      uniqueById.set(thesis.id, thesis);
+    }
+
+    return [...uniqueById.values()].sort(
+      (left, right) => right.updatedAt.getTime() - left.updatedAt.getTime(),
+    );
+  }
+
+  private async findProfessorScopedThesisById(
+    professorId: string,
+    thesisId: string,
+  ): Promise<Thesis> {
+    const thesis = await this.thesisRepository.findOne({ where: { id: thesisId } });
+    if (!thesis) {
+      throw new NotFoundException('Thesis not found for this professor.');
+    }
+
+    if (thesis.supervisorId === professorId) {
+      await this.cohortsService.ensureEnrollmentInProfessorDefaultCohort(
+        professorId,
+        thesis.studentId,
+      );
+      return thesis;
+    }
+
+    const hasScope = await this.cohortsService.isStudentInProfessorScope(
+      professorId,
+      thesis.studentId,
+    );
+    if (!hasScope) {
+      throw new NotFoundException('Thesis not found for this professor.');
+    }
+
+    return thesis;
   }
 
   private buildRiskAssessment(input: {

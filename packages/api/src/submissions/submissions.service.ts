@@ -6,6 +6,9 @@ import { Repository } from 'typeorm';
 import { CitationReport } from '../analysis/entities/citation-report.entity';
 import { PlagiarismReport } from '../analysis/entities/plagiarism-report.entity';
 import { ThesisAnalysis } from '../analysis/entities/thesis-analysis.entity';
+import { CohortsService } from '../cohorts/cohorts.service';
+import { Milestone } from '../milestones/entities/milestone.entity';
+import { RealtimeService } from '../realtime/realtime.service';
 import { StorageService } from '../storage/storage.service';
 import { Thesis, ThesisStatus } from '../theses/entities/thesis.entity';
 import { Submission, SubmissionStatus } from './entities/submission.entity';
@@ -32,12 +35,17 @@ export class SubmissionsService {
     private readonly citationReportRepository: Repository<CitationReport>,
     @InjectRepository(PlagiarismReport)
     private readonly plagiarismReportRepository: Repository<PlagiarismReport>,
+    @InjectRepository(Milestone)
+    private readonly milestoneRepository: Repository<Milestone>,
     private readonly storageService: StorageService,
+    private readonly cohortsService: CohortsService,
+    private readonly realtimeService: RealtimeService,
   ) {}
 
   async upload(
     studentId: string,
     file: UploadedFileData,
+    milestoneId?: string,
   ): Promise<{ submission_id: string; status: string }> {
     const thesis = await this.thesisRepository.findOne({ where: { studentId } });
     if (!thesis) {
@@ -45,6 +53,23 @@ export class SubmissionsService {
     }
 
     this.validateFile(file);
+
+    const milestone = milestoneId
+      ? await this.milestoneRepository.findOne({ where: { id: milestoneId } })
+      : null;
+    if (milestoneId && !milestone) {
+      throw new BadRequestException('Milestone not found.');
+    }
+
+    if (milestone) {
+      const isEnrolled = await this.cohortsService.isStudentEnrolledInCohort(
+        studentId,
+        milestone.cohortId,
+      );
+      if (!isEnrolled) {
+        throw new BadRequestException('Student is not enrolled in the selected milestone cohort.');
+      }
+    }
 
     const previousSubmission = await this.submissionRepository.findOne({
       where: { thesisId: thesis.id },
@@ -60,16 +85,38 @@ export class SubmissionsService {
       versionNumber,
       fileKey,
       fileName: file.originalname,
+      milestoneId: milestone?.id ?? null,
       extractedText: null,
       status: SubmissionStatus.PROCESSING,
     });
     await this.submissionRepository.save(submission);
 
+    this.realtimeService.emitToUser(studentId, 'submission.created', {
+      submissionId: submission.id,
+      studentId,
+      status: submission.status,
+      versionNumber: submission.versionNumber,
+      submittedAt: submission.createdAt.toISOString(),
+      milestoneId: submission.milestoneId,
+    });
+
     try {
       await this.storageService.uploadFile(file.buffer, fileKey, file.mimetype);
+      this.realtimeService.emitToUser(studentId, 'submission.stage', {
+        submissionId: submission.id,
+        stage: 'stored_file',
+        message: 'File uploaded successfully.',
+        progress: 0.1,
+      });
 
       const extractedText = await this.extractText(file);
       submission.extractedText = extractedText;
+      this.realtimeService.emitToUser(studentId, 'submission.stage', {
+        submissionId: submission.id,
+        stage: 'text_extracted',
+        message: 'Text extracted and ready for analysis.',
+        progress: 0.25,
+      });
 
       const previousAnalysis = previousSubmission
         ? await this.thesisAnalysisRepository.findOne({
@@ -94,6 +141,12 @@ export class SubmissionsService {
           ...analysis,
         }),
       );
+      this.realtimeService.emitToUser(studentId, 'submission.stage', {
+        submissionId: submission.id,
+        stage: 'thesis_analysis_done',
+        message: 'Thesis analysis complete.',
+        progress: 0.6,
+      });
 
       await this.citationReportRepository.save(
         this.citationReportRepository.create({
@@ -101,6 +154,12 @@ export class SubmissionsService {
           ...citation,
         }),
       );
+      this.realtimeService.emitToUser(studentId, 'submission.stage', {
+        submissionId: submission.id,
+        stage: 'citations_done',
+        message: 'Citation scan complete.',
+        progress: 0.8,
+      });
 
       await this.plagiarismReportRepository.save(
         this.plagiarismReportRepository.create({
@@ -108,9 +167,49 @@ export class SubmissionsService {
           ...plagiarism,
         }),
       );
+      this.realtimeService.emitToUser(studentId, 'submission.stage', {
+        submissionId: submission.id,
+        stage: 'plagiarism_done',
+        message: 'Plagiarism scan complete.',
+        progress: 0.95,
+      });
 
       submission.status = SubmissionStatus.COMPLETE;
       await this.submissionRepository.save(submission);
+      this.realtimeService.emitToUser(studentId, 'submission.complete', {
+        submissionId: submission.id,
+        status: submission.status,
+      });
+
+      const professorIds = new Set<string>();
+      const enrolledProfessorIds = await this.cohortsService.getProfessorIdsForStudent(studentId);
+      for (const professorId of enrolledProfessorIds) {
+        professorIds.add(professorId);
+      }
+      if (thesis.supervisorId) {
+        professorIds.add(thesis.supervisorId);
+      }
+
+      const originalityScore = Math.max(0, 100 - plagiarism.similarityPercent);
+      for (const professorId of professorIds) {
+        this.realtimeService.emitToProfessor(professorId, 'plagiarism.ready', {
+          submissionId: submission.id,
+          originalityScore,
+          scoreDropped: plagiarism.similarityPercent >= 30,
+        });
+
+        this.realtimeService.emitToProfessor(professorId, 'dashboard.student_update', {
+          studentId,
+          submissionId: submission.id,
+          progressScore: analysis.progressScore,
+          atRisk: analysis.progressScore < 55 || plagiarism.similarityPercent >= 30,
+        });
+      }
+      this.realtimeService.emitToUser(studentId, 'plagiarism.ready', {
+        submissionId: submission.id,
+        originalityScore,
+        scoreDropped: plagiarism.similarityPercent >= 30,
+      });
 
       thesis.status = ThesisStatus.SUPERVISED;
       await this.thesisRepository.save(thesis);
@@ -122,6 +221,11 @@ export class SubmissionsService {
     } catch (error) {
       submission.status = SubmissionStatus.FAILED;
       await this.submissionRepository.save(submission);
+      this.realtimeService.emitToUser(studentId, 'submission.failed', {
+        submissionId: submission.id,
+        status: submission.status,
+        error: 'Submission processing failed.',
+      });
       throw error;
     }
   }
@@ -156,11 +260,19 @@ export class SubmissionsService {
       throw new NotFoundException('Submission not found.');
     }
 
-    const thesis = await this.thesisRepository.findOne({
-      where: { id: submission.thesisId, supervisorId: professorId },
-    });
+    const thesis = await this.thesisRepository.findOne({ where: { id: submission.thesisId } });
     if (!thesis) {
       throw new NotFoundException('Submission not found for this professor.');
+    }
+
+    if (thesis.supervisorId !== professorId) {
+      const hasScope = await this.cohortsService.isStudentInProfessorScope(
+        professorId,
+        thesis.studentId,
+      );
+      if (!hasScope) {
+        throw new NotFoundException('Submission not found for this professor.');
+      }
     }
 
     const { buffer, contentType } = await this.storageService.getFileBuffer(submission.fileKey);
@@ -190,6 +302,7 @@ export class SubmissionsService {
     return {
       id: submission.id,
       thesis_id: submission.thesisId,
+      milestone_id: submission.milestoneId,
       version_number: submission.versionNumber,
       status: submission.status,
       analysis,

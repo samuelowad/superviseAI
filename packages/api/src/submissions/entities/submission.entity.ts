@@ -30,6 +30,9 @@ export class Submission {
   @Column({ name: 'file_name' })
   fileName!: string;
 
+  @Column({ name: 'milestone_id', type: 'uuid', nullable: true })
+  milestoneId!: string | null;
+
   @Column({ type: 'text', nullable: true })
   extractedText!: string | null;
 

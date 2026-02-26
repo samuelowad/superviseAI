@@ -4,6 +4,9 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { CitationReport } from '../analysis/entities/citation-report.entity';
 import { PlagiarismReport } from '../analysis/entities/plagiarism-report.entity';
 import { ThesisAnalysis } from '../analysis/entities/thesis-analysis.entity';
+import { CohortsModule } from '../cohorts/cohorts.module';
+import { Milestone } from '../milestones/entities/milestone.entity';
+import { RealtimeModule } from '../realtime/realtime.module';
 import { StorageModule } from '../storage/storage.module';
 import { Thesis } from '../theses/entities/thesis.entity';
 import { Submission } from './entities/submission.entity';
@@ -18,8 +21,11 @@ import { SubmissionsService } from './submissions.service';
       ThesisAnalysis,
       CitationReport,
       PlagiarismReport,
+      Milestone,
     ]),
     StorageModule,
+    CohortsModule,
+    RealtimeModule,
   ],
   controllers: [SubmissionsController],
   providers: [SubmissionsService],

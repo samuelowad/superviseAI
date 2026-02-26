@@ -9,21 +9,31 @@ import { UpdateMilestoneDto } from './dto/update-milestone.dto';
 import { MilestonesService } from './milestones.service';
 
 interface AuthenticatedRequest {
-  user: { id: string };
+  user: { id: string; role: UserRole };
 }
 
 @Controller('milestones')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.PROFESSOR)
 export class MilestonesController {
   constructor(private readonly milestonesService: MilestonesService) {}
 
   @Get()
+  @Roles(UserRole.PROFESSOR)
   list(@Req() req: AuthenticatedRequest): Promise<{ milestones: Array<Record<string, unknown>> }> {
     return this.milestonesService.listForProfessor(req.user.id);
   }
 
+  @Get('cohort/:cohortId')
+  @Roles(UserRole.PROFESSOR, UserRole.STUDENT)
+  getCohortMilestones(
+    @Req() req: AuthenticatedRequest,
+    @Param('cohortId') cohortId: string,
+  ): Promise<Record<string, unknown>> {
+    return this.milestonesService.getCohortMilestones(cohortId, req.user);
+  }
+
   @Post()
+  @Roles(UserRole.PROFESSOR)
   create(
     @Req() req: AuthenticatedRequest,
     @Body() dto: CreateMilestoneDto,
@@ -32,6 +42,7 @@ export class MilestonesController {
   }
 
   @Patch(':id')
+  @Roles(UserRole.PROFESSOR)
   update(
     @Req() req: AuthenticatedRequest,
     @Param('id') milestoneId: string,
