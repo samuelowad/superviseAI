@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createRequire } from 'module';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 
 import { CitationReport } from '../analysis/entities/citation-report.entity';
 import { PlagiarismReport } from '../analysis/entities/plagiarism-report.entity';
@@ -13,6 +13,27 @@ import { CreateThesisDto } from './dto/create-thesis.dto';
 import { Thesis, ThesisStatus } from './entities/thesis.entity';
 
 const runtimeRequire = createRequire(__filename);
+
+type ReviewAction =
+  | 'save_feedback'
+  | 'return_to_student'
+  | 'request_revisions'
+  | 'approve_milestone'
+  | 'mark_complete';
+
+interface RiskAssessment {
+  level: 'green' | 'yellow' | 'red';
+  reasons: string[];
+}
+
+interface ProfessorStudentSnapshot {
+  thesis: Thesis;
+  student: User | null;
+  latestSubmission: Submission | null;
+  latestAnalysis: ThesisAnalysis | null;
+  latestPlagiarism: PlagiarismReport | null;
+  risk: RiskAssessment;
+}
 
 @Injectable()
 export class ThesesService {
@@ -269,6 +290,567 @@ export class ThesesService {
         created_at: submission.createdAt,
       })),
     };
+  }
+
+  async getProfessorDashboard(professorId: string): Promise<Record<string, unknown>> {
+    const snapshots = await this.buildProfessorSnapshots(professorId);
+
+    const students = snapshots
+      .map((snapshot) => ({
+        thesis_id: snapshot.thesis.id,
+        thesis_title: snapshot.thesis.title,
+        thesis_status: snapshot.thesis.status,
+        thesis_status_label: this.getStatusLabel(snapshot.thesis.status),
+        student_id: snapshot.student?.id ?? snapshot.thesis.studentId,
+        student_name: snapshot.student?.fullName ?? 'Unknown Student',
+        student_email: snapshot.student?.email ?? null,
+        progress_score: snapshot.latestAnalysis?.progressScore ?? 0,
+        trend_delta: snapshot.latestAnalysis?.trendDelta ?? 0,
+        plagiarism_similarity: snapshot.latestPlagiarism?.similarityPercent ?? 0,
+        last_submission_at: snapshot.latestSubmission?.createdAt?.toISOString() ?? null,
+        risk_level: snapshot.risk.level,
+        risk_reasons: snapshot.risk.reasons,
+      }))
+      .sort((left, right) => {
+        const rank: Record<'red' | 'yellow' | 'green', number> = {
+          red: 0,
+          yellow: 1,
+          green: 2,
+        };
+        const levelOrder = rank[left.risk_level] - rank[right.risk_level];
+        if (levelOrder !== 0) {
+          return levelOrder;
+        }
+
+        const leftTimestamp = left.last_submission_at
+          ? new Date(left.last_submission_at).getTime()
+          : 0;
+        const rightTimestamp = right.last_submission_at
+          ? new Date(right.last_submission_at).getTime()
+          : 0;
+        return rightTimestamp - leftTimestamp;
+      });
+
+    const summary = {
+      total_students: snapshots.length,
+      active_theses: snapshots.filter(
+        (snapshot) => snapshot.thesis.status !== ThesisStatus.COMPLETED,
+      ).length,
+      awaiting_review: snapshots.filter(
+        (snapshot) => snapshot.thesis.status === ThesisStatus.SUBMITTED_TO_PROF,
+      ).length,
+      at_risk_count: snapshots.filter((snapshot) => snapshot.risk.level !== 'green').length,
+    };
+
+    return { summary, students };
+  }
+
+  async getProfessorStudents(
+    professorId: string,
+  ): Promise<{ students: Array<Record<string, unknown>> }> {
+    const dashboard = await this.getProfessorDashboard(professorId);
+    const students =
+      typeof dashboard === 'object' && dashboard !== null && 'students' in dashboard
+        ? ((dashboard as { students?: Array<Record<string, unknown>> }).students ?? [])
+        : [];
+    return { students };
+  }
+
+  async getProfessorStudentDetail(
+    professorId: string,
+    thesisId: string,
+  ): Promise<Record<string, unknown>> {
+    const thesis = await this.thesisRepository.findOne({
+      where: { id: thesisId, supervisorId: professorId },
+    });
+    if (!thesis) {
+      throw new NotFoundException('Thesis not found for this professor.');
+    }
+
+    const student = await this.userRepository.findOne({
+      where: { id: thesis.studentId },
+    });
+
+    const submissions = await this.submissionRepository.find({
+      where: { thesisId: thesis.id },
+      order: { versionNumber: 'DESC' },
+    });
+    const activeSubmission = submissions[0] ?? null;
+    const previousSubmission = submissions[1] ?? null;
+
+    const submissionIds = submissions.map((submission) => submission.id);
+    const [analysisRows, citationRows, plagiarismRows, latestSession] = await Promise.all([
+      submissionIds.length
+        ? this.thesisAnalysisRepository.find({ where: { submissionId: In(submissionIds) } })
+        : Promise.resolve([]),
+      submissionIds.length
+        ? this.citationReportRepository.find({ where: { submissionId: In(submissionIds) } })
+        : Promise.resolve([]),
+      submissionIds.length
+        ? this.plagiarismReportRepository.find({ where: { submissionId: In(submissionIds) } })
+        : Promise.resolve([]),
+      this.coachingSessionRepository.findOne({
+        where: { thesisId: thesis.id },
+        order: { createdAt: 'DESC' },
+      }),
+    ]);
+
+    const analysisBySubmission = new Map(
+      analysisRows.map((analysis) => [analysis.submissionId, analysis]),
+    );
+    const citationBySubmission = new Map(
+      citationRows.map((citation) => [citation.submissionId, citation]),
+    );
+    const plagiarismBySubmission = new Map(
+      plagiarismRows.map((plagiarism) => [plagiarism.submissionId, plagiarism]),
+    );
+
+    const activeAnalysis = activeSubmission
+      ? (analysisBySubmission.get(activeSubmission.id) ?? null)
+      : null;
+    const activeCitation = activeSubmission
+      ? (citationBySubmission.get(activeSubmission.id) ?? null)
+      : null;
+    const activePlagiarism = activeSubmission
+      ? (plagiarismBySubmission.get(activeSubmission.id) ?? null)
+      : null;
+
+    const progressHistory = [...submissions]
+      .sort((left, right) => left.versionNumber - right.versionNumber)
+      .map((submission) => {
+        const analysis = analysisBySubmission.get(submission.id);
+        if (!analysis) {
+          return null;
+        }
+
+        return {
+          version_number: submission.versionNumber,
+          progress_score: analysis.progressScore,
+          trend_delta: analysis.trendDelta,
+          created_at: submission.createdAt.toISOString(),
+        };
+      })
+      .filter((row): row is NonNullable<typeof row> => row !== null);
+
+    const plagiarismHistory = [...submissions]
+      .sort((left, right) => left.versionNumber - right.versionNumber)
+      .map((submission) => {
+        const plagiarism = plagiarismBySubmission.get(submission.id);
+        if (!plagiarism) {
+          return null;
+        }
+
+        return {
+          version_number: submission.versionNumber,
+          similarity_percent: plagiarism.similarityPercent,
+          risk_level: plagiarism.riskLevel,
+          created_at: submission.createdAt.toISOString(),
+        };
+      })
+      .filter((row): row is NonNullable<typeof row> => row !== null);
+
+    const timeline: Array<{
+      id: string;
+      label: string;
+      timestamp: string;
+      type: 'status' | 'submission' | 'feedback';
+    }> = [
+      {
+        id: 'thesis-created',
+        label: 'Thesis created',
+        timestamp: thesis.createdAt.toISOString(),
+        type: 'status',
+      },
+      ...[...submissions]
+        .sort((left, right) => left.versionNumber - right.versionNumber)
+        .map((submission) => ({
+          id: `submission-${submission.id}`,
+          label: `Version ${submission.versionNumber} uploaded`,
+          timestamp: submission.createdAt.toISOString(),
+          type: 'submission' as const,
+        })),
+    ];
+
+    if (thesis.status === ThesisStatus.SUBMITTED_TO_PROF) {
+      timeline.push({
+        id: 'status-awaiting-review',
+        label: 'Sent to supervisor',
+        timestamp: thesis.updatedAt.toISOString(),
+        type: 'status',
+      });
+    }
+
+    if (thesis.latestFeedbackAt) {
+      timeline.push({
+        id: 'prof-feedback',
+        label: 'Professor feedback updated',
+        timestamp: thesis.latestFeedbackAt.toISOString(),
+        type: 'feedback',
+      });
+    }
+
+    if (thesis.status === ThesisStatus.COMPLETED) {
+      timeline.push({
+        id: 'status-complete',
+        label: 'Thesis marked complete',
+        timestamp: thesis.updatedAt.toISOString(),
+        type: 'status',
+      });
+    }
+
+    timeline.sort(
+      (left, right) => new Date(right.timestamp).getTime() - new Date(left.timestamp).getTime(),
+    );
+
+    const comparison =
+      activeSubmission && previousSubmission
+        ? {
+            previous_version: previousSubmission.versionNumber,
+            current_version: activeSubmission.versionNumber,
+            additions: activeAnalysis?.additionsCount ?? 0,
+            deletions: activeAnalysis?.deletionsCount ?? 0,
+            major_edits: activeAnalysis?.majorEditsCount ?? 0,
+            pr_diff: this.buildPullRequestDiff(
+              previousSubmission.extractedText ?? '',
+              activeSubmission.extractedText ?? '',
+            ),
+            pdf_view: this.buildPdfViewPaths(activeSubmission, previousSubmission, activeAnalysis),
+          }
+        : null;
+
+    return {
+      student: {
+        id: student?.id ?? thesis.studentId,
+        full_name: student?.fullName ?? 'Unknown Student',
+        email: student?.email ?? null,
+      },
+      thesis: {
+        id: thesis.id,
+        title: thesis.title,
+        abstract: thesis.abstract,
+        status: thesis.status,
+        status_label: this.getStatusLabel(thesis.status),
+        latest_professor_feedback: thesis.latestProfessorFeedback,
+        latest_feedback_at: thesis.latestFeedbackAt?.toISOString() ?? null,
+      },
+      latest_submission: activeSubmission
+        ? {
+            id: activeSubmission.id,
+            version_number: activeSubmission.versionNumber,
+            status: activeSubmission.status,
+            created_at: activeSubmission.createdAt.toISOString(),
+          }
+        : null,
+      metrics: {
+        progress_score: activeAnalysis?.progressScore ?? 0,
+        trend_delta: activeAnalysis?.trendDelta ?? 0,
+        citation_health_score: activeCitation?.citationHealthScore ?? 0,
+        plagiarism_similarity: activePlagiarism?.similarityPercent ?? 0,
+        readiness_score: latestSession?.readinessScore ?? null,
+      },
+      reports: {
+        citations: {
+          issues_count: activeCitation?.issuesCount ?? 0,
+          missing_citations: activeCitation?.missingCitations ?? [],
+          broken_references: activeCitation?.brokenReferences ?? [],
+          formatting_errors: activeCitation?.formattingErrors ?? [],
+        },
+        plagiarism: {
+          risk_level: activePlagiarism?.riskLevel ?? 'green',
+          flagged_sections: activePlagiarism?.flaggedSections ?? [],
+        },
+      },
+      history: {
+        progress: progressHistory,
+        plagiarism: plagiarismHistory,
+        timeline,
+      },
+      comparison,
+      submissions: submissions.map((submission) => ({
+        id: submission.id,
+        version_number: submission.versionNumber,
+        status: submission.status,
+        created_at: submission.createdAt.toISOString(),
+      })),
+    };
+  }
+
+  async submitProfessorReview(
+    professorId: string,
+    thesisId: string,
+    input: { action: ReviewAction; feedback?: string },
+  ): Promise<Record<string, unknown>> {
+    const thesis = await this.thesisRepository.findOne({
+      where: { id: thesisId, supervisorId: professorId },
+    });
+    if (!thesis) {
+      throw new NotFoundException('Thesis not found for this professor.');
+    }
+
+    const feedback = input.feedback?.trim() ?? '';
+    if (
+      (input.action === 'return_to_student' || input.action === 'request_revisions') &&
+      feedback.length < 8
+    ) {
+      throw new BadRequestException('Feedback is required when returning work for revisions.');
+    }
+
+    if (feedback) {
+      thesis.latestProfessorFeedback = feedback;
+    }
+
+    let nextStatus: ThesisStatus | null = null;
+    if (input.action === 'return_to_student' || input.action === 'request_revisions') {
+      nextStatus = ThesisStatus.RETURNED_TO_STUDENT;
+    } else if (input.action === 'approve_milestone') {
+      nextStatus = ThesisStatus.SUPERVISED;
+    } else if (input.action === 'mark_complete') {
+      nextStatus = ThesisStatus.COMPLETED;
+    }
+
+    if (nextStatus) {
+      thesis.status = nextStatus;
+    }
+
+    if (feedback || nextStatus) {
+      thesis.latestFeedbackAt = new Date();
+    }
+
+    const saved = await this.thesisRepository.save(thesis);
+    return {
+      thesis: {
+        id: saved.id,
+        status: saved.status,
+        status_label: this.getStatusLabel(saved.status),
+      },
+      latest_professor_feedback: {
+        text: saved.latestProfessorFeedback,
+        timestamp: saved.latestFeedbackAt?.toISOString() ?? null,
+      },
+    };
+  }
+
+  async getProfessorAnalytics(professorId: string): Promise<Record<string, unknown>> {
+    const snapshots = await this.buildProfessorSnapshots(professorId);
+    const thesisIds = snapshots.map((snapshot) => snapshot.thesis.id);
+
+    if (thesisIds.length === 0) {
+      return {
+        totals: {
+          supervised_students: 0,
+          average_progress_score: 0,
+          at_risk_count: 0,
+        },
+        risk_distribution: {
+          green: 0,
+          yellow: 0,
+          red: 0,
+        },
+        progress_trend: [],
+        submission_activity: [],
+        at_risk_students: [],
+      };
+    }
+
+    const submissions = await this.submissionRepository.find({
+      where: { thesisId: In(thesisIds) },
+      order: { createdAt: 'ASC' },
+    });
+
+    const submissionIds = submissions.map((submission) => submission.id);
+    const analyses = submissionIds.length
+      ? await this.thesisAnalysisRepository.find({ where: { submissionId: In(submissionIds) } })
+      : [];
+    const analysisBySubmission = new Map(
+      analyses.map((analysis) => [analysis.submissionId, analysis]),
+    );
+
+    const progressByDate = new Map<string, { total: number; count: number }>();
+    const activityByDate = new Map<string, number>();
+
+    for (const submission of submissions) {
+      const dateKey = submission.createdAt.toISOString().slice(0, 10);
+      activityByDate.set(dateKey, (activityByDate.get(dateKey) ?? 0) + 1);
+
+      const analysis = analysisBySubmission.get(submission.id);
+      if (!analysis) {
+        continue;
+      }
+
+      const aggregate = progressByDate.get(dateKey) ?? { total: 0, count: 0 };
+      aggregate.total += analysis.progressScore;
+      aggregate.count += 1;
+      progressByDate.set(dateKey, aggregate);
+    }
+
+    const riskDistribution = snapshots.reduce(
+      (distribution, snapshot) => {
+        distribution[snapshot.risk.level] += 1;
+        return distribution;
+      },
+      { green: 0, yellow: 0, red: 0 },
+    );
+
+    const averageProgressScore =
+      snapshots.reduce(
+        (total, snapshot) => total + (snapshot.latestAnalysis?.progressScore ?? 0),
+        0,
+      ) / Math.max(1, snapshots.length);
+
+    return {
+      totals: {
+        supervised_students: snapshots.length,
+        average_progress_score: Math.round(averageProgressScore),
+        at_risk_count: snapshots.filter((snapshot) => snapshot.risk.level !== 'green').length,
+      },
+      risk_distribution: riskDistribution,
+      progress_trend: [...progressByDate.entries()]
+        .sort(([leftDate], [rightDate]) => leftDate.localeCompare(rightDate))
+        .map(([date, aggregate]) => ({
+          date,
+          average_progress: Math.round(aggregate.total / Math.max(1, aggregate.count)),
+          samples: aggregate.count,
+        })),
+      submission_activity: [...activityByDate.entries()]
+        .sort(([leftDate], [rightDate]) => leftDate.localeCompare(rightDate))
+        .map(([date, count]) => ({
+          date,
+          submissions: count,
+        })),
+      at_risk_students: snapshots
+        .filter((snapshot) => snapshot.risk.level !== 'green')
+        .map((snapshot) => ({
+          thesis_id: snapshot.thesis.id,
+          student_name: snapshot.student?.fullName ?? 'Unknown Student',
+          thesis_title: snapshot.thesis.title,
+          risk_level: snapshot.risk.level,
+          risk_reasons: snapshot.risk.reasons,
+        })),
+    };
+  }
+
+  private async buildProfessorSnapshots(professorId: string): Promise<ProfessorStudentSnapshot[]> {
+    const theses = await this.thesisRepository.find({
+      where: { supervisorId: professorId },
+      order: { updatedAt: 'DESC' },
+    });
+
+    if (theses.length === 0) {
+      return [];
+    }
+
+    const thesisIds = theses.map((thesis) => thesis.id);
+    const studentIds = theses.map((thesis) => thesis.studentId);
+
+    const [students, submissions] = await Promise.all([
+      this.userRepository.find({
+        where: { id: In(studentIds) },
+      }),
+      this.submissionRepository.find({
+        where: { thesisId: In(thesisIds) },
+        order: { versionNumber: 'DESC' },
+      }),
+    ]);
+
+    const studentById = new Map(students.map((student) => [student.id, student]));
+    const latestSubmissionByThesis = new Map<string, Submission>();
+
+    for (const submission of submissions) {
+      if (!latestSubmissionByThesis.has(submission.thesisId)) {
+        latestSubmissionByThesis.set(submission.thesisId, submission);
+      }
+    }
+
+    const latestSubmissionIds = [...latestSubmissionByThesis.values()].map(
+      (submission) => submission.id,
+    );
+    const [analyses, plagiarismReports] = await Promise.all([
+      latestSubmissionIds.length
+        ? this.thesisAnalysisRepository.find({ where: { submissionId: In(latestSubmissionIds) } })
+        : Promise.resolve([]),
+      latestSubmissionIds.length
+        ? this.plagiarismReportRepository.find({ where: { submissionId: In(latestSubmissionIds) } })
+        : Promise.resolve([]),
+    ]);
+
+    const analysisBySubmissionId = new Map(
+      analyses.map((analysis) => [analysis.submissionId, analysis]),
+    );
+    const plagiarismBySubmissionId = new Map(
+      plagiarismReports.map((plagiarism) => [plagiarism.submissionId, plagiarism]),
+    );
+
+    return theses.map((thesis) => {
+      const latestSubmission = latestSubmissionByThesis.get(thesis.id) ?? null;
+      const latestAnalysis = latestSubmission
+        ? (analysisBySubmissionId.get(latestSubmission.id) ?? null)
+        : null;
+      const latestPlagiarism = latestSubmission
+        ? (plagiarismBySubmissionId.get(latestSubmission.id) ?? null)
+        : null;
+
+      const risk = this.buildRiskAssessment({
+        progressScore: latestAnalysis?.progressScore ?? null,
+        trendDelta: latestAnalysis?.trendDelta ?? null,
+        similarityPercent: latestPlagiarism?.similarityPercent ?? null,
+        lastSubmissionAt: latestSubmission?.createdAt ?? null,
+      });
+
+      return {
+        thesis,
+        student: studentById.get(thesis.studentId) ?? null,
+        latestSubmission,
+        latestAnalysis,
+        latestPlagiarism,
+        risk,
+      };
+    });
+  }
+
+  private buildRiskAssessment(input: {
+    progressScore: number | null;
+    trendDelta: number | null;
+    similarityPercent: number | null;
+    lastSubmissionAt: Date | null;
+  }): RiskAssessment {
+    const reasons: string[] = [];
+
+    if (input.progressScore !== null && input.progressScore < 55) {
+      reasons.push('Low progress score');
+    }
+
+    if (input.trendDelta !== null && input.trendDelta < -3) {
+      reasons.push('Declining progress trend');
+    }
+
+    if (input.similarityPercent !== null && input.similarityPercent >= 30) {
+      reasons.push('High similarity score');
+    }
+
+    if (!input.lastSubmissionAt) {
+      reasons.push('No submissions available');
+    } else {
+      const ageDays = Math.floor(
+        (Date.now() - input.lastSubmissionAt.getTime()) / (24 * 60 * 60 * 1000),
+      );
+      if (ageDays > 21) {
+        reasons.push('No recent submission');
+      }
+    }
+
+    if (reasons.length === 0) {
+      return { level: 'green', reasons: [] };
+    }
+
+    if (
+      (input.progressScore !== null && input.progressScore < 45) ||
+      (input.similarityPercent !== null && input.similarityPercent >= 45) ||
+      reasons.length >= 2
+    ) {
+      return { level: 'red', reasons };
+    }
+
+    return { level: 'yellow', reasons };
   }
 
   private getStatusLabel(status: ThesisStatus): string {

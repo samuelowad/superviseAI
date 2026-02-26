@@ -19,16 +19,16 @@ import { UserRole } from '../users/user.entity';
 import { SubmissionsService } from './submissions.service';
 
 interface AuthenticatedRequest {
-  user: { id: string };
+  user: { id: string; role: UserRole };
 }
 
 @Controller('submissions')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.STUDENT)
 export class SubmissionsController {
   constructor(private readonly submissionsService: SubmissionsService) {}
 
   @Post('upload')
+  @Roles(UserRole.STUDENT)
   @UseInterceptors(FileInterceptor('file'))
   upload(
     @Req() req: AuthenticatedRequest,
@@ -42,14 +42,15 @@ export class SubmissionsController {
   }
 
   @Get(':id/file')
+  @Roles(UserRole.STUDENT, UserRole.PROFESSOR)
   async streamFile(
     @Req() req: AuthenticatedRequest,
     @Param('id') submissionId: string,
   ): Promise<StreamableFile> {
-    const { buffer, contentType, filename } = await this.submissionsService.streamFile(
-      req.user.id,
-      submissionId,
-    );
+    const isProfessor = req.user.role === UserRole.PROFESSOR;
+    const { buffer, contentType, filename } = isProfessor
+      ? await this.submissionsService.streamFileForProfessor(req.user.id, submissionId)
+      : await this.submissionsService.streamFile(req.user.id, submissionId);
 
     return new StreamableFile(buffer, {
       type: contentType,
@@ -58,6 +59,7 @@ export class SubmissionsController {
   }
 
   @Get(':id')
+  @Roles(UserRole.STUDENT)
   getOne(
     @Req() req: AuthenticatedRequest,
     @Param('id') submissionId: string,

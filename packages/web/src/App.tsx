@@ -9,6 +9,7 @@ import {
   ProfessorAnalyticsPage,
   ProfessorDashboardPage,
   ProfessorMilestonesPage,
+  ProfessorStudentDetailPage,
   ProfessorStudentsPage,
 } from './pages/professor/ProfessorPages';
 import { ChangePasswordPage } from './pages/public/ChangePasswordPage';
@@ -79,6 +80,20 @@ function renderProfessorRoute(path: string): JSX.Element {
 
   if (subPath === '/students') {
     return <ProfessorStudentsPage />;
+  }
+
+  if (subPath.startsWith('/students/')) {
+    const thesisId = subPath.replace('/students/', '');
+    if (thesisId.length > 0) {
+      return <ProfessorStudentDetailPage thesisId={thesisId} />;
+    }
+  }
+
+  if (subPath.startsWith('/student/')) {
+    const thesisId = subPath.replace('/student/', '');
+    if (thesisId.length > 0) {
+      return <ProfessorStudentDetailPage thesisId={thesisId} />;
+    }
   }
 
   if (subPath === '/milestones') {

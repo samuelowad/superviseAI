@@ -7,6 +7,7 @@ import { PlagiarismReport } from '../analysis/entities/plagiarism-report.entity'
 import { ThesisAnalysis } from '../analysis/entities/thesis-analysis.entity';
 import { CoachingSession } from '../coaching/entities/coaching-session.entity';
 import { PasswordReset } from '../auth/entities/password-reset.entity';
+import { Milestone } from '../milestones/entities/milestone.entity';
 import { Submission } from '../submissions/entities/submission.entity';
 import { Thesis } from '../theses/entities/thesis.entity';
 import { User } from '../users/user.entity';
@@ -25,6 +26,7 @@ export const AppDataSource = new DataSource({
     CitationReport,
     PlagiarismReport,
     CoachingSession,
+    Milestone,
   ],
   migrations: [__dirname + '/migrations/*{.ts,.js}'],
 });
