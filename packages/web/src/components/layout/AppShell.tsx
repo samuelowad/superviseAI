@@ -7,12 +7,23 @@ import { NavLink } from '../../lib/router';
 interface NavItem {
   to: string;
   label: string;
+  icon?: string;
 }
 
 interface AppShellProps {
   title: string;
   navItems: NavItem[];
   lockedMessage?: string;
+}
+
+function avatarInitials(name?: string): string {
+  if (!name) return '?';
+  return name
+    .split(' ')
+    .slice(0, 2)
+    .map((w) => w[0])
+    .join('')
+    .toUpperCase();
 }
 
 export function AppShell({
@@ -25,9 +36,13 @@ export function AppShell({
 
   return (
     <div className="shell-root">
+      {/* ── Sidebar ── */}
       <aside className="shell-sidebar">
         <NavLink className="shell-logo" to={roleHomePath(user?.role ?? 'student')}>
-          SuperviseAI
+          <span className="shell-logo-mark" aria-hidden>
+            SA
+          </span>
+          <span>SuperviseAI</span>
         </NavLink>
 
         <nav className="shell-nav" aria-label="Main navigation">
@@ -43,18 +58,24 @@ export function AppShell({
           ))}
         </nav>
 
-        <button type="button" className="btn btn-ghost shell-logout" onClick={logout}>
-          Logout
-        </button>
+        <div className="shell-sidebar-footer">
+          <div className="shell-user-chip">
+            <span className="shell-avatar">{avatarInitials(user?.full_name)}</span>
+            <div className="shell-user-meta">
+              <span className="shell-user-name">{user?.full_name}</span>
+              <span className="shell-user-role">{user?.role}</span>
+            </div>
+          </div>
+          <button type="button" className="btn btn-ghost btn-sm shell-logout" onClick={logout}>
+            Sign out
+          </button>
+        </div>
       </aside>
 
+      {/* ── Main content ── */}
       <div className="shell-content-wrap">
         <header className="shell-topbar">
-          <div>
-            <p className="shell-topbar-title">{title}</p>
-            <p className="shell-topbar-subtitle">{user?.full_name}</p>
-          </div>
-          <span className="role-pill">{user?.role}</span>
+          <h1 className="shell-topbar-title">{title}</h1>
         </header>
 
         {lockedMessage ? <p className="locked-banner">{lockedMessage}</p> : null}
