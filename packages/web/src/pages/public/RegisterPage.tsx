@@ -12,6 +12,11 @@ import { TextField } from '../../components/ui/TextField';
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const passwordHasNumber = /\d/;
 
+const ROLES = [
+  { value: 'student' as const, label: 'Student', desc: 'Submit & track your thesis' },
+  { value: 'professor' as const, label: 'Professor', desc: 'Supervise & review theses' },
+];
+
 export function RegisterPage(): JSX.Element {
   const navigate = useNavigate();
   const { register } = useAuth();
@@ -64,7 +69,7 @@ export function RegisterPage(): JSX.Element {
   return (
     <AuthLayoutSplit
       title="Create your account"
-      subtitle="Start tracking thesis progress with structured AI supervision workflows."
+      subtitle="Get started with AI-powered thesis supervision."
       panelQuote="High-quality supervision starts with clear milestones, consistent review, and fast iteration."
     >
       <form onSubmit={onSubmit} className="auth-form" noValidate>
@@ -91,20 +96,28 @@ export function RegisterPage(): JSX.Element {
           required
         />
 
-        <div className="field-wrap">
-          <label className="field-label" htmlFor="role">
-            Role
-          </label>
-          <select
-            id="role"
-            className="text-field"
-            value={role}
-            onChange={(event) => setRole(event.target.value as 'student' | 'professor')}
-          >
-            <option value="student">Student</option>
-            <option value="professor">Professor</option>
-          </select>
-        </div>
+        <fieldset className="role-picker">
+          <legend className="field-label">I am a</legend>
+          <div className="role-picker-options">
+            {ROLES.map((r) => (
+              <label
+                key={r.value}
+                className={`role-option${role === r.value ? ' role-option--active' : ''}`}
+              >
+                <input
+                  type="radio"
+                  name="role"
+                  value={r.value}
+                  checked={role === r.value}
+                  onChange={() => setRole(r.value)}
+                  className="sr-only"
+                />
+                <span className="role-option-label">{r.label}</span>
+                <span className="role-option-desc">{r.desc}</span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
 
         <FormError message={formError} />
 
@@ -114,7 +127,7 @@ export function RegisterPage(): JSX.Element {
 
         <div className="auth-links-row one-link">
           <span>Already have an account?</span>
-          <Link to="/login">Login</Link>
+          <Link to="/login">Sign in</Link>
         </div>
       </form>
     </AuthLayoutSplit>

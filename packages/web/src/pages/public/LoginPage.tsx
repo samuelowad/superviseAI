@@ -60,7 +60,7 @@ export function LoginPage(): JSX.Element {
   return (
     <AuthLayoutSplit
       title="Welcome back"
-      subtitle="Log in to continue supervising and improving thesis progress."
+      subtitle="Sign in to your SuperviseAI account."
       panelQuote="Consistent, structured feedback helps students arrive at defence with confidence."
     >
       <form onSubmit={onSubmit} className="auth-form" noValidate>
