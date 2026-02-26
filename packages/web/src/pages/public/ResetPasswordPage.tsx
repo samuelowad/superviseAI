@@ -40,8 +40,8 @@ export function ResetPasswordPage(): JSX.Element {
   return (
     <AuthLayoutSplit
       title="Reset password"
-      subtitle="Enter your email address to receive a secure reset link."
-      panelQuote="Secure access is mandatory for responsible academic and research workflows."
+      subtitle="Enter your email to receive a secure reset link."
+      panelQuote="Secure access is essential for responsible academic and research workflows."
     >
       <form onSubmit={onSubmit} className="auth-form" noValidate>
         <TextField

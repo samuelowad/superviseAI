@@ -57,8 +57,8 @@ export function ChangePasswordPage(): JSX.Element {
 
   return (
     <AuthLayoutSplit
-      title="Change password"
-      subtitle="Create a new secure password for your SuperviseAI account."
+      title="Set new password"
+      subtitle="Create a new secure password for your account."
       panelQuote="Credential hygiene protects both research data and supervision integrity."
     >
       <form onSubmit={onSubmit} className="auth-form" noValidate>
