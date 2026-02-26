@@ -516,14 +516,10 @@ export class ThesesService {
       };
     }
 
-    const { lines: previousLines, truncated: previousTruncated } = this.normalizeDiffLines(
-      previousText,
-      280,
-    );
-    const { lines: currentLines, truncated: currentTruncated } = this.normalizeDiffLines(
-      currentText,
-      280,
-    );
+    const { lines: previousLines, truncated: previousTruncated } =
+      this.normalizeDiffLines(previousText);
+    const { lines: currentLines, truncated: currentTruncated } =
+      this.normalizeDiffLines(currentText);
 
     if (previousLines.length === 0 && currentLines.length === 0) {
       return {
@@ -604,7 +600,7 @@ export class ThesesService {
 
   private normalizeDiffLines(
     text: string,
-    maxLines: number,
+    maxLines?: number,
   ): {
     lines: string[];
     truncated: boolean;
@@ -622,7 +618,7 @@ export class ThesesService {
           .filter(Boolean);
 
     const normalized = lines.map((line) => line.trim().replace(/\s+/g, ' ')).filter(Boolean);
-    if (normalized.length <= maxLines) {
+    if (!maxLines || normalized.length <= maxLines) {
       return { lines: normalized, truncated: false };
     }
 
