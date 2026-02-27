@@ -36,7 +36,7 @@ interface WorkspaceResponse {
     citation_issues: number;
     plagiarism_similarity: number;
     next_milestone: string;
-    due_in_days: number;
+    due_in_days: number | null;
   };
   central_panel: {
     mode: 'first_submission' | 'version_comparison';
@@ -95,8 +95,10 @@ interface WorkspaceResponse {
       formatting_errors: string[];
     };
     milestone: {
+      id: string | null;
       next_milestone: string;
-      due_in_days: number;
+      due_date: string | null;
+      due_in_days: number | null;
       status: string;
     };
     latest_professor_feedback: {
@@ -171,7 +173,10 @@ function formatDate(value: string | null): string {
   return date.toLocaleString();
 }
 
-async function uploadSubmission(file: File): Promise<{ submission_id: string; status: string }> {
+async function uploadSubmission(
+  file: File,
+  milestoneId?: string | null,
+): Promise<{ submission_id: string; status: string }> {
   const token = getAccessToken();
   if (!token) {
     throw new Error('You are not authenticated.');
@@ -179,6 +184,9 @@ async function uploadSubmission(file: File): Promise<{ submission_id: string; st
 
   const formData = new FormData();
   formData.append('file', file);
+  if (milestoneId) {
+    formData.append('milestone_id', milestoneId);
+  }
 
   const response = await fetch(
     `${import.meta.env.VITE_API_URL ?? 'http://localhost:3000/api/v1'}/submissions/upload`,
@@ -202,6 +210,18 @@ async function uploadSubmission(file: File): Promise<{ submission_id: string; st
   }
 
   return payload as { submission_id: string; status: string };
+}
+
+function formatDueText(dueInDays: number | null): string {
+  if (dueInDays === null) {
+    return 'No due date';
+  }
+
+  if (dueInDays < 0) {
+    return `Overdue by ${Math.abs(dueInDays)} day(s)`;
+  }
+
+  return `Due in ${dueInDays} day(s)`;
 }
 
 function WorkspaceHeader({
@@ -287,7 +307,7 @@ function MetricsRow({ workspace }: { workspace: WorkspaceResponse }): JSX.Elemen
       <article className="metric-card">
         <h3>Milestone</h3>
         <p className="metric-value small">{workspace.metrics.next_milestone}</p>
-        <p>Due in {workspace.metrics.due_in_days} day(s)</p>
+        <p>{formatDueText(workspace.metrics.due_in_days)}</p>
       </article>
     </section>
   );
@@ -661,7 +681,9 @@ function RightPanel({ workspace }: { workspace: WorkspaceResponse }): JSX.Elemen
         <summary>Milestone Tracker</summary>
         <div className="right-panel-card-body">
           <p>{workspace.right_panel.milestone.next_milestone}</p>
-          <p>Due in {workspace.right_panel.milestone.due_in_days} day(s)</p>
+          <p>{formatDueText(workspace.right_panel.milestone.due_in_days)}</p>
+          <p>Status: {workspace.right_panel.milestone.status}</p>
+          <p>Due Date: {workspace.right_panel.milestone.due_date ?? 'Not set'}</p>
         </div>
       </details>
 
@@ -1054,7 +1076,7 @@ export function StudentWorkspacePage(): JSX.Element {
     }, 600);
 
     try {
-      await uploadSubmission(file);
+      await uploadSubmission(file, workspace?.right_panel.milestone.id);
       window.clearInterval(timer);
       setUploadSteps(['done', 'done', 'done', 'done', 'done']);
       setNotice('New submission uploaded and processed successfully.');

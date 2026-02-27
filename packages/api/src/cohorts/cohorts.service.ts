@@ -220,6 +220,29 @@ export class CohortsService {
     return [...new Set(rows.map((row) => row.professor_id).filter(Boolean))];
   }
 
+  async getStudentCohortIds(studentId: string): Promise<string[]> {
+    const enrollments = await this.enrollmentRepository.find({
+      where: { studentId },
+      select: { cohortId: true },
+      order: { enrolledAt: 'ASC' },
+    });
+
+    return [...new Set(enrollments.map((enrollment) => enrollment.cohortId))];
+  }
+
+  async getStudentCohortIdsForProfessor(studentId: string, professorId: string): Promise<string[]> {
+    const rows = await this.enrollmentRepository
+      .createQueryBuilder('enrollment')
+      .innerJoin(Cohort, 'cohort', 'cohort.id = enrollment.cohort_id')
+      .select('enrollment.cohort_id', 'cohort_id')
+      .where('enrollment.student_id = :studentId', { studentId })
+      .andWhere('cohort.professor_id = :professorId', { professorId })
+      .orderBy('enrollment.enrolled_at', 'ASC')
+      .getRawMany<{ cohort_id: string }>();
+
+    return [...new Set(rows.map((row) => row.cohort_id).filter(Boolean))];
+  }
+
   async isStudentInProfessorScope(professorId: string, studentId: string): Promise<boolean> {
     const cohortIds = await this.getProfessorScopedCohortIds(professorId);
     if (cohortIds.length === 0) {
