@@ -7,6 +7,19 @@ interface ChatMessage {
   content: string;
 }
 
+interface ThesisChunk {
+  index: number;
+  start: number;
+  end: number;
+  text: string;
+}
+
+interface RetrievedContext {
+  context: string;
+  totalChunks: number;
+  selectedChunkIndexes: number[];
+}
+
 @Injectable()
 export class AzureOpenAiService {
   private readonly logger = new Logger(AzureOpenAiService.name);
@@ -40,7 +53,6 @@ export class AzureOpenAiService {
   }
 
   async chat(messages: ChatMessage[], maxTokens = 1000): Promise<string | null> {
-    console.dir(messages, { depth: null, maxArrayLength: null });
     if (!this.client) return null;
     try {
       const response = await this.client.chat.completions.create({
@@ -66,11 +78,6 @@ export class AzureOpenAiService {
       return { baseURL: null, deployment: deploymentFromEnv };
     }
 
-    // Support either:
-    // 1) resource endpoint host (https://<resource>.<domain>/)
-    // 2) OpenAI v1 endpoint (https://<resource>.<domain>/openai/v1/)
-    // 3) full deployment URL copied from portal docs
-    //    (.../openai/deployments/<deployment>/chat/completions?api-version=...)
     try {
       const parsed = new URL(endpoint);
       const pathname = parsed.pathname || '/';
@@ -132,11 +139,35 @@ export class AzureOpenAiService {
   } | null> {
     if (!this.client) return null;
 
+    const currentCtx = this.retrieveThesisContext(opts.currentText, {
+      query:
+        'overall thesis objective introduction methodology results discussion conclusion limitations references contributions',
+      maxChunks: 8,
+      chunkSize: 1800,
+      overlap: 250,
+      maxChars: 14000,
+      ensureCoverage: true,
+    });
+    const previousCtx = opts.previousText
+      ? this.retrieveThesisContext(opts.previousText, {
+          query: 'previous thesis draft key arguments methods results limitations',
+          maxChunks: 3,
+          chunkSize: 1800,
+          overlap: 250,
+          maxChars: 4500,
+          ensureCoverage: true,
+        })
+      : null;
+
     const prompt = `You are a thesis evaluation engine. Analyze the following thesis text and return a JSON object.
 
 Abstract: ${opts.abstract ?? 'Not provided'}
-Thesis text (first 8000 chars): ${opts.currentText.slice(0, 8000)}
-${opts.previousText ? `Previous version excerpt: ${opts.previousText.slice(0, 2000)}` : ''}
+Current thesis context (retrieved from full thesis via chunking):
+${currentCtx.context}
+Current thesis metadata: total_chunks=${currentCtx.totalChunks}, selected_chunks=${currentCtx.selectedChunkIndexes
+      .map((i) => i + 1)
+      .join(',')}
+${previousCtx ? `\nPrevious version context (retrieved from full previous draft):\n${previousCtx.context}\nPrevious version metadata: total_chunks=${previousCtx.totalChunks}, selected_chunks=${previousCtx.selectedChunkIndexes.map((i) => i + 1).join(',')}` : ''}
 
 Return ONLY valid JSON with these exact fields:
 {
@@ -220,10 +251,23 @@ Return ONLY valid JSON with these exact fields:
         'Use high-rigor academic phrasing and deeper methodological pressure in the questions.',
     };
 
+    const retrieval = this.retrieveThesisContext(opts.thesisText, {
+      query: `${opts.mode} thesis methodology evidence limitations contribution findings ${opts.abstract ?? ''}`,
+      maxChunks: 7,
+      chunkSize: 1800,
+      overlap: 250,
+      maxChars: 12000,
+      ensureCoverage: true,
+    });
+
     const prompt = `Based on this thesis, generate exactly ${count} ${modeDesc}.
 
 Abstract: ${opts.abstract ?? 'Not provided'}
-Thesis content (first 6000 chars): ${opts.thesisText.slice(0, 6000)}
+Thesis context (retrieved from full thesis via chunking):
+${retrieval.context}
+Context metadata: total_chunks=${retrieval.totalChunks}, selected_chunks=${retrieval.selectedChunkIndexes
+      .map((i) => i + 1)
+      .join(',')}
 ${profileInstructions[learnerProfile] ? `\nLearner profile guidance: ${profileInstructions[learnerProfile]}` : ''}
 
 Return ONLY a JSON array of exactly ${count} question strings. Be specific to this thesis — reference actual content, not generic questions.
@@ -261,7 +305,6 @@ Example: ["Question about their specific method?", "Why did they choose X over Y
     transcript: Array<{ role: 'assistant' | 'student'; content: string }>;
     userMessage: string;
     nextQuestion?: string;
-    // Adaptive loop context
     learnerProfile?: 'standard' | 'esl_support' | 'anxious_speaker' | 'advanced_researcher';
     confidence?: number;
     difficultyBand?: 'easy' | 'medium' | 'hard';
@@ -287,15 +330,30 @@ Example: ["Question about their specific method?", "Why did they choose X over Y
     };
 
     const basePrompts: Record<string, string> = {
-      mock_viva: `You are a strict academic examiner conducting a viva voce. Briefly acknowledge the student's answer (1 sentence), then ask the next question. Be rigorous but fair. Do not give away answers.`,
-      argument_defender: `You are a critical academic reviewer. Challenge the student's claims directly. Demand stronger evidence, expose hidden assumptions, and test the limits of their argument. Never provide answers.`,
-      socratic: `You are a Socratic coach. Ask probing follow-up questions only. Never answer for the student. Every response must end with a question that deepens their thinking.`,
+      mock_viva:
+        "You are a strict academic examiner conducting a viva voce. Briefly acknowledge the student's answer (1 sentence), then ask the next question. Be rigorous but fair. Do not give away answers.",
+      argument_defender:
+        "You are a critical academic reviewer. Challenge the student's claims directly. Demand stronger evidence, expose hidden assumptions, and test the limits of their argument. Never provide answers.",
+      socratic:
+        'You are a Socratic coach. Ask probing follow-up questions only. Never answer for the student. Every response must end with a question that deepens their thinking.',
     };
+
+    const retrieval = this.retrieveThesisContext(opts.thesisContext, {
+      query: `${opts.mode} ${opts.userMessage} ${opts.nextQuestion ?? ''}`,
+      maxChunks: 4,
+      chunkSize: 1600,
+      overlap: 250,
+      maxChars: 7000,
+      ensureCoverage: false,
+    });
 
     const systemContent = [
       basePrompts[opts.mode],
       '',
-      `Thesis context: ${opts.thesisContext.slice(0, 2500)}`,
+      `Thesis context (retrieved from full thesis via chunking):\n${retrieval.context}`,
+      `Context metadata: total_chunks=${retrieval.totalChunks}, selected_chunks=${retrieval.selectedChunkIndexes
+        .map((i) => i + 1)
+        .join(',')}`,
       opts.nextQuestion ? `\nNext question to ask: "${opts.nextQuestion}"` : '',
       '',
       `DIFFICULTY GUIDANCE: ${difficultyInstructions[difficulty]}`,
@@ -316,11 +374,6 @@ Example: ["Question about their specific method?", "Why did they choose X over Y
     return this.chat(messages, 550);
   }
 
-  /**
-   * GPT per-turn scoring across 5 academic dimensions.
-   * Returns scores 0-100 for: argument_strength, evidence_quality,
-   * logical_consistency, clarity, confidence.
-   */
   async scoreTurn(opts: { studentAnswer: string; question: string; thesisTitle: string }): Promise<{
     argument_strength: number;
     evidence_quality: number;
@@ -460,6 +513,242 @@ Return ONLY valid JSON with integer scores 0-100 for each dimension:
     } catch {
       return null;
     }
+  }
+
+  private retrieveThesisContext(
+    text: string,
+    opts: {
+      query: string;
+      maxChunks: number;
+      chunkSize: number;
+      overlap: number;
+      maxChars: number;
+      ensureCoverage: boolean;
+    },
+  ): RetrievedContext {
+    const clean = text.trim();
+    if (!clean) {
+      return { context: 'No thesis text available.', totalChunks: 0, selectedChunkIndexes: [] };
+    }
+
+    const chunks = this.chunkText(clean, opts.chunkSize, opts.overlap);
+    if (chunks.length <= opts.maxChunks) {
+      return {
+        context: this.formatChunkContext(chunks, opts.maxChars),
+        totalChunks: chunks.length,
+        selectedChunkIndexes: chunks.map((c) => c.index),
+      };
+    }
+
+    const ranked = this.rankChunks(chunks, opts.query);
+    const selected = this.pickChunkIndexes(
+      ranked,
+      chunks.length,
+      opts.maxChunks,
+      opts.ensureCoverage,
+    );
+    const selectedChunks = selected.map((idx) => chunks[idx]).filter(Boolean);
+
+    return {
+      context: this.formatChunkContext(selectedChunks, opts.maxChars),
+      totalChunks: chunks.length,
+      selectedChunkIndexes: selected,
+    };
+  }
+
+  private chunkText(text: string, chunkSize: number, overlap: number): ThesisChunk[] {
+    const chunks: ThesisChunk[] = [];
+    const normalized = text.replace(/\r\n/g, '\n').trim();
+    if (!normalized) return chunks;
+
+    let start = 0;
+    let index = 0;
+    while (start < normalized.length) {
+      let end = Math.min(start + chunkSize, normalized.length);
+
+      if (end < normalized.length) {
+        const softBoundary = Math.max(
+          normalized.lastIndexOf('\n', end),
+          normalized.lastIndexOf('. ', end),
+        );
+        if (softBoundary > start + Math.floor(chunkSize * 0.6)) {
+          end = softBoundary + 1;
+        }
+      }
+
+      if (end <= start) end = Math.min(start + chunkSize, normalized.length);
+
+      const chunkText = normalized.slice(start, end).trim();
+      if (chunkText) {
+        chunks.push({ index, start, end, text: chunkText });
+        index += 1;
+      }
+
+      if (end >= normalized.length) break;
+      start = Math.max(end - overlap, start + 1);
+    }
+
+    return chunks;
+  }
+
+  private rankChunks(chunks: ThesisChunk[], query: string): Array<{ idx: number; score: number }> {
+    const queryTerms = this.extractQueryTerms(query);
+    const headings = [
+      'introduction',
+      'methodology',
+      'methods',
+      'results',
+      'discussion',
+      'conclusion',
+      'limitations',
+      'future work',
+      'references',
+    ];
+
+    return chunks
+      .map((chunk) => {
+        const lower = chunk.text.toLowerCase();
+        let score = 0;
+
+        for (const term of queryTerms) {
+          if (lower.includes(term)) {
+            score += term.length >= 7 ? 2 : 1;
+          }
+        }
+
+        for (const heading of headings) {
+          if (lower.includes(heading)) {
+            score += 0.35;
+          }
+        }
+
+        return { idx: chunk.index, score };
+      })
+      .sort((a, b) => (b.score === a.score ? a.idx - b.idx : b.score - a.score));
+  }
+
+  private pickChunkIndexes(
+    ranked: Array<{ idx: number; score: number }>,
+    totalChunks: number,
+    maxChunks: number,
+    ensureCoverage: boolean,
+  ): number[] {
+    const selected: number[] = [];
+    const minDistance = totalChunks > 8 ? 2 : 1;
+    const scoreMap = new Map<number, number>(ranked.map((r) => [r.idx, r.score]));
+
+    for (const candidate of ranked) {
+      if (selected.length >= maxChunks) break;
+      if (selected.length === 0) {
+        selected.push(candidate.idx);
+        continue;
+      }
+      const farEnough = selected.every((s) => Math.abs(s - candidate.idx) >= minDistance);
+      if (farEnough) {
+        selected.push(candidate.idx);
+      }
+    }
+
+    if (selected.length < maxChunks) {
+      for (const candidate of ranked) {
+        if (selected.length >= maxChunks) break;
+        if (!selected.includes(candidate.idx)) selected.push(candidate.idx);
+      }
+    }
+
+    if (ensureCoverage && totalChunks > 2) {
+      const coverageTargets = Array.from(
+        new Set([0, Math.floor((totalChunks - 1) / 2), totalChunks - 1]),
+      );
+
+      for (const target of coverageTargets) {
+        if (selected.includes(target)) continue;
+        if (selected.length < maxChunks) {
+          selected.push(target);
+          continue;
+        }
+
+        const replaceIdx = selected
+          .filter((idx) => !coverageTargets.includes(idx))
+          .sort((a, b) => (scoreMap.get(a) ?? 0) - (scoreMap.get(b) ?? 0))[0];
+
+        if (replaceIdx !== undefined) {
+          selected[selected.indexOf(replaceIdx)] = target;
+        }
+      }
+    }
+
+    return Array.from(new Set(selected))
+      .sort((a, b) => a - b)
+      .slice(0, maxChunks);
+  }
+
+  private extractQueryTerms(query: string): string[] {
+    const stopwords = new Set([
+      'the',
+      'and',
+      'for',
+      'that',
+      'with',
+      'from',
+      'this',
+      'into',
+      'your',
+      'about',
+      'what',
+      'when',
+      'where',
+      'which',
+      'while',
+      'have',
+      'will',
+      'would',
+      'should',
+      'could',
+      'their',
+      'them',
+      'they',
+      'then',
+      'than',
+      'only',
+    ]);
+
+    return Array.from(
+      new Set(
+        query
+          .toLowerCase()
+          .replace(/[^a-z0-9\s]/g, ' ')
+          .split(/\s+/)
+          .map((t) => t.trim())
+          .filter((t) => t.length >= 3 && !stopwords.has(t)),
+      ),
+    ).slice(0, 36);
+  }
+
+  private formatChunkContext(chunks: ThesisChunk[], maxChars: number): string {
+    if (chunks.length === 0) return 'No thesis text available.';
+
+    const blocks: string[] = [];
+    let remaining = maxChars;
+
+    for (const chunk of chunks) {
+      if (remaining <= 60) break;
+
+      const header = `[Chunk ${chunk.index + 1} | chars ${chunk.start + 1}-${chunk.end}]`;
+      const headerCost = header.length + 1;
+      if (headerCost >= remaining) break;
+
+      const bodyBudget = remaining - headerCost - 2;
+      let body = chunk.text;
+      if (body.length > bodyBudget) {
+        body = `${body.slice(0, Math.max(0, bodyBudget - 3)).trim()}...`;
+      }
+
+      blocks.push(`${header}\n${body}`);
+      remaining -= header.length + body.length + 2;
+    }
+
+    return blocks.join('\n\n');
   }
 
   private getFallbackQuestions(
