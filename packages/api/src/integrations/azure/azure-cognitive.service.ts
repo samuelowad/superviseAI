@@ -48,8 +48,14 @@ export class AzureCognitiveService {
   private readonly endpoint: string | null;
 
   constructor() {
-    this.key = process.env.AZURE_LANGUAGE_KEY ?? process.env.AZURE_OPENAI_KEY ?? null;
-    this.endpoint = process.env.AZURE_LANGUAGE_ENDPOINT ?? null;
+    // Support both naming conventions so existing environments do not break.
+    this.key =
+      process.env.AZURE_LANGUAGE_KEY ??
+      process.env.AZURE_COGNITIVE_KEY ??
+      process.env.AZURE_OPENAI_KEY ??
+      null;
+    this.endpoint =
+      process.env.AZURE_LANGUAGE_ENDPOINT ?? process.env.AZURE_COGNITIVE_ENDPOINT ?? null;
 
     if (this.key && this.endpoint) {
       this.logger.log('Azure Cognitive (Language) Service initialized.');

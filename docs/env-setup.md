@@ -7,7 +7,7 @@ This guide covers all API keys and environment variables needed to run Supervise
 Copy the example env file and add your keys:
 
 ```bash
-cp packages/api/.env.example packages/api/.env
+cp packages/api/env.example packages/api/.env
 ```
 
 Then open `packages/api/.env` and add the sections below.
@@ -56,6 +56,28 @@ AZURE_SPEECH_REGION=eastus
 
 - `POST /coaching/tts` — converts AI coaching responses to natural speech (Neural voice)
 - `POST /coaching/voice` — transcribes student audio recordings to text
+
+---
+
+## 2b. Azure Language / Cognitive (confidence + sentiment adaptation)
+
+Use either naming style below. The backend accepts both:
+
+```env
+# Preferred
+AZURE_LANGUAGE_KEY=<your-language-key>
+AZURE_LANGUAGE_ENDPOINT=https://<your-resource>.cognitiveservices.azure.com
+
+# Backward-compatible aliases
+AZURE_COGNITIVE_KEY=<your-language-key>
+AZURE_COGNITIVE_ENDPOINT=https://<your-resource>.cognitiveservices.azure.com
+```
+
+**What it powers:**
+
+- Turn-by-turn confidence and sentiment analysis in coaching sessions
+- Adaptive difficulty/tone in `Argument Defender` / `Socratic` / `Mock Viva` modes
+- Live coaching metrics (`confidence`, `difficulty`, `trend`) in `/coaching/message`
 
 ---
 
@@ -176,6 +198,12 @@ AZURE_OPENAI_DEPLOYMENT=gpt-4o
 # ── Azure Speech ──────────────────────────────────────────────────────────────
 AZURE_SPEECH_KEY=
 AZURE_SPEECH_REGION=eastus
+
+# ── Azure Language/Cognitive (either naming style works) ─────────────────────
+AZURE_LANGUAGE_KEY=
+AZURE_LANGUAGE_ENDPOINT=
+AZURE_COGNITIVE_KEY=
+AZURE_COGNITIVE_ENDPOINT=
 
 # ── Copyleaks ─────────────────────────────────────────────────────────────────
 COPYLEAKS_EMAIL=

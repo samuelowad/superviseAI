@@ -87,8 +87,26 @@ SEED_USER_PASSWORD='YourStrongPassword123!' npm run db:seed
 npm run lint
 npm run typecheck
 npm run build
+npm run smoke:demo
 npm run format
 ```
+
+`npm run smoke:demo` assumes seeded default users. Override with env vars when needed:
+
+```bash
+SMOKE_API_BASE_URL=http://localhost:3000/api/v1 \
+SMOKE_PROFESSOR_EMAIL=professor@superviseai.local \
+SMOKE_PROFESSOR_PASSWORD='SuperviseAI123!' \
+SMOKE_STUDENT_EMAIL=student@superviseai.local \
+SMOKE_STUDENT_PASSWORD='SuperviseAI123!' \
+npm run smoke:demo
+```
+
+## Hackathon Submission Assets
+
+- Project description: `docs/submission/project-description.md`
+- Slide content outline: `docs/submission/slides-outline.md`
+- 2-minute demo script: `docs/submission/video-script-2min.md`
 
 ## Commit Hook Behavior
 
