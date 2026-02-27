@@ -7,6 +7,7 @@ import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.js?url';
 import { getAccessToken } from '../../auth/storage';
 import { apiRequest } from '../../lib/api';
 import { Link } from '../../lib/router';
+import { subscribeRealtime } from '../../lib/socket';
 
 pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
@@ -41,16 +42,48 @@ interface ProfessorDashboardResponse {
 
 interface MilestoneRecord {
   id: string;
+  cohort_id: string;
+  cohort_name: string;
   title: string;
   stage: string;
   due_date: string;
   due_in_days: number | null;
+  completion: {
+    total_students: number;
+    completed_students: number;
+    pending_students: number;
+  };
   created_at: string;
   updated_at: string;
 }
 
 interface MilestonesResponse {
   milestones: MilestoneRecord[];
+}
+
+interface CohortRecord {
+  id: string;
+  name: string;
+  citation_style: string;
+  student_count: number;
+  created_at: string;
+}
+
+interface EnrollmentRecord {
+  id: string;
+  student_id: string;
+  student_name: string;
+  student_email: string;
+  enrolled_at: string;
+}
+
+interface CohortsResponse {
+  cohorts: CohortRecord[];
+}
+
+interface EnrollmentsResponse {
+  cohort: CohortRecord;
+  enrollments: EnrollmentRecord[];
 }
 
 interface ProfessorAnalyticsResponse {
@@ -190,6 +223,10 @@ interface MilestoneDraft {
   due_date: string;
 }
 
+interface CreateMilestoneInput extends MilestoneDraft {
+  cohort_id: string;
+}
+
 function formatDate(value: string | null): string {
   if (!value) {
     return 'N/A';
@@ -234,6 +271,250 @@ function riskClass(risk: 'green' | 'yellow' | 'red'): string {
   }
 
   return 'risk-green';
+}
+
+function wordDiff(a: string, b: string): Array<{ text: string; type: 'equal' | 'remove' | 'add' }> {
+  const tokA = a.split(/(\s+)/);
+  const tokB = b.split(/(\s+)/);
+  const m = tokA.length;
+  const n = tokB.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array<number>(n + 1).fill(0));
+  for (let i = m - 1; i >= 0; i--) {
+    for (let j = n - 1; j >= 0; j--) {
+      dp[i][j] = tokA[i] === tokB[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+  const result: Array<{ text: string; type: 'equal' | 'remove' | 'add' }> = [];
+  let i = 0;
+  let j = 0;
+  while (i < m || j < n) {
+    if (i < m && j < n && tokA[i] === tokB[j]) {
+      result.push({ text: tokA[i], type: 'equal' });
+      i++;
+      j++;
+    } else if (j < n && (i >= m || dp[i][j + 1] >= dp[i + 1][j])) {
+      result.push({ text: tokB[j], type: 'add' });
+      j++;
+    } else {
+      result.push({ text: tokA[i], type: 'remove' });
+      i++;
+    }
+  }
+  return result;
+}
+
+function renderWordDiff(text: string, counterText: string, side: 'left' | 'right'): JSX.Element {
+  const segments = wordDiff(text, counterText);
+  return (
+    <pre className="pr-line-text">
+      {segments.map((seg, idx) => {
+        if (side === 'left' && seg.type === 'remove') {
+          return (
+            <mark key={idx} style={{ background: 'rgba(185,28,28,0.25)', borderRadius: '2px' }}>
+              {seg.text}
+            </mark>
+          );
+        }
+        if (side === 'right' && seg.type === 'add') {
+          return (
+            <mark key={idx} style={{ background: 'rgba(21,128,61,0.25)', borderRadius: '2px' }}>
+              {seg.text}
+            </mark>
+          );
+        }
+        if (seg.type === 'equal') {
+          return <span key={idx}>{seg.text}</span>;
+        }
+        return null;
+      })}
+    </pre>
+  );
+}
+
+function LineChart({
+  data,
+  width = 400,
+  height = 140,
+}: {
+  data: Array<{ x: number; y: number; label: string }>;
+  width?: number;
+  height?: number;
+}): JSX.Element {
+  if (data.length === 0) return <p>No data.</p>;
+  const pad = { top: 12, right: 16, bottom: 24, left: 32 };
+  const w = width - pad.left - pad.right;
+  const h = height - pad.top - pad.bottom;
+  const xs = data.map((d) => d.x);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const toSvgX = (x: number) =>
+    maxX === minX ? pad.left + w / 2 : pad.left + ((x - minX) / (maxX - minX)) * w;
+  const toSvgY = (y: number) => pad.top + (1 - y / 100) * h;
+  const points = data.map((d) => `${toSvgX(d.x)},${toSvgY(d.y)}`).join(' ');
+  return (
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      preserveAspectRatio="none"
+      style={{ width: '100%', height: `${height}px` }}
+      aria-label="Progress chart"
+    >
+      {[25, 50, 75].map((y) => (
+        <line
+          key={y}
+          x1={pad.left}
+          y1={toSvgY(y)}
+          x2={pad.left + w}
+          y2={toSvgY(y)}
+          stroke="rgba(0,0,0,0.06)"
+          strokeWidth="1"
+        />
+      ))}
+      {[0, 50, 100].map((y) => (
+        <text key={y} x={pad.left - 4} y={toSvgY(y) + 4} fontSize="9" textAnchor="end" fill="#888">
+          {y}
+        </text>
+      ))}
+      <polyline points={points} fill="none" stroke="var(--primary)" strokeWidth="2" />
+      {data.map((d) => (
+        <circle
+          key={d.x}
+          cx={toSvgX(d.x)}
+          cy={toSvgY(d.y)}
+          r="4"
+          fill="white"
+          stroke="var(--primary)"
+          strokeWidth="2"
+        >
+          <title>{d.label}</title>
+        </circle>
+      ))}
+      {data.map((d) => (
+        <text
+          key={`lbl-${d.x}`}
+          x={toSvgX(d.x)}
+          y={pad.top + h + 14}
+          fontSize="9"
+          textAnchor="middle"
+          fill="#888"
+        >
+          V{d.x}
+        </text>
+      ))}
+    </svg>
+  );
+}
+
+function BarChart({
+  data,
+  width = 400,
+  height = 140,
+}: {
+  data: Array<{ x: string; y: number; label: string }>;
+  width?: number;
+  height?: number;
+}): JSX.Element {
+  if (data.length === 0) return <p>No data.</p>;
+  const pad = { top: 12, right: 16, bottom: 28, left: 32 };
+  const w = width - pad.left - pad.right;
+  const h = height - pad.top - pad.bottom;
+  const maxY = Math.max(...data.map((d) => d.y), 1);
+  const gap = w / data.length;
+  const barW = Math.max(4, gap * 0.6);
+  return (
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      preserveAspectRatio="none"
+      style={{ width: '100%', height: `${height}px` }}
+      aria-label="Activity chart"
+    >
+      {[0.25, 0.5, 0.75].map((frac) => (
+        <line
+          key={frac}
+          x1={pad.left}
+          y1={pad.top + (1 - frac) * h}
+          x2={pad.left + w}
+          y2={pad.top + (1 - frac) * h}
+          stroke="rgba(0,0,0,0.06)"
+          strokeWidth="1"
+        />
+      ))}
+      {data.map((d, idx) => {
+        const barH = (d.y / maxY) * h;
+        const cx = pad.left + gap * idx + gap / 2;
+        return (
+          <g key={idx}>
+            <rect
+              x={cx - barW / 2}
+              y={pad.top + h - barH}
+              width={barW}
+              height={barH}
+              fill="var(--primary)"
+              opacity="0.7"
+              rx="2"
+            >
+              <title>{d.label}</title>
+            </rect>
+            {data.length <= 8 ? (
+              <text x={cx} y={pad.top + h + 14} fontSize="8" textAnchor="middle" fill="#888">
+                {d.x.slice(5)}
+              </text>
+            ) : null}
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+function VisualTimeline({
+  entries,
+}: {
+  entries: Array<{
+    id: string;
+    label: string;
+    timestamp: string;
+    type: 'status' | 'submission' | 'feedback';
+  }>;
+}): JSX.Element {
+  const dotColor = (type: 'status' | 'submission' | 'feedback'): string => {
+    if (type === 'submission') return 'var(--primary)';
+    if (type === 'feedback') return '#f59e0b';
+    return '#2563eb';
+  };
+  return (
+    <div
+      style={{ position: 'relative', paddingLeft: '28px', borderLeft: '2px solid var(--border)' }}
+    >
+      {entries.map((entry, idx) => (
+        <div
+          key={entry.id}
+          style={{
+            position: 'relative',
+            paddingBottom: idx < entries.length - 1 ? '1rem' : 0,
+            borderBottom: idx < entries.length - 1 ? '1px solid var(--border)' : 'none',
+            marginBottom: idx < entries.length - 1 ? '1rem' : 0,
+          }}
+        >
+          <span
+            style={{
+              position: 'absolute',
+              left: '-35px',
+              top: '2px',
+              width: '12px',
+              height: '12px',
+              borderRadius: '50%',
+              background: dotColor(entry.type),
+              display: 'block',
+            }}
+          />
+          <strong style={{ display: 'block', fontSize: '0.9rem' }}>{entry.label}</strong>
+          <span style={{ color: 'var(--text-secondary, #666)', fontSize: '0.78rem' }}>
+            {formatDate(entry.timestamp)}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function PdfViewer({ path, title }: { path: string; title: string }): JSX.Element {
@@ -371,36 +652,36 @@ export function ProfessorDashboardPage(): JSX.Element {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const loadDashboard = useCallback(async (): Promise<void> => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await apiRequest<ProfessorDashboardResponse>('/dashboard/professor');
+      setData(response);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load dashboard.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    let active = true;
+    void loadDashboard();
+  }, [loadDashboard]);
 
-    const load = async (): Promise<void> => {
-      setLoading(true);
-      setError(null);
-      try {
-        const response = await apiRequest<ProfessorDashboardResponse>('/dashboard/professor');
-        if (!active) {
-          return;
-        }
-        setData(response);
-      } catch (err) {
-        if (!active) {
-          return;
-        }
-        setError(err instanceof Error ? err.message : 'Failed to load dashboard.');
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
-      }
-    };
-
-    void load();
+  useEffect(() => {
+    const unsubDashboard = subscribeRealtime('dashboard.student_update', () => {
+      void loadDashboard();
+    });
+    const unsubPlagiarism = subscribeRealtime('plagiarism.ready', () => {
+      void loadDashboard();
+    });
 
     return () => {
-      active = false;
+      unsubDashboard();
+      unsubPlagiarism();
     };
-  }, []);
+  }, [loadDashboard]);
 
   if (loading) {
     return <LoadingCard message="Loading professor dashboard..." />;
@@ -507,38 +788,38 @@ export function ProfessorStudentsPage(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
 
+  const loadStudents = useCallback(async (): Promise<void> => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await apiRequest<{ students: ProfessorStudentRow[] }>(
+        '/dashboard/professor/students',
+      );
+      setStudents(response.students);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load students.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    let active = true;
+    void loadStudents();
+  }, [loadStudents]);
 
-    const load = async (): Promise<void> => {
-      setLoading(true);
-      setError(null);
-      try {
-        const response = await apiRequest<{ students: ProfessorStudentRow[] }>(
-          '/dashboard/professor/students',
-        );
-        if (!active) {
-          return;
-        }
-        setStudents(response.students);
-      } catch (err) {
-        if (!active) {
-          return;
-        }
-        setError(err instanceof Error ? err.message : 'Failed to load students.');
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
-      }
-    };
-
-    void load();
+  useEffect(() => {
+    const unsubDashboard = subscribeRealtime('dashboard.student_update', () => {
+      void loadStudents();
+    });
+    const unsubPlagiarism = subscribeRealtime('plagiarism.ready', () => {
+      void loadStudents();
+    });
 
     return () => {
-      active = false;
+      unsubDashboard();
+      unsubPlagiarism();
     };
-  }, []);
+  }, [loadStudents]);
 
   const filtered = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -633,26 +914,45 @@ export function ProfessorStudentsPage(): JSX.Element {
 
 export function ProfessorMilestonesPage(): JSX.Element {
   const [milestones, setMilestones] = useState<MilestoneRecord[]>([]);
+  const [cohorts, setCohorts] = useState<CohortRecord[]>([]);
+  const [selectedCohortId, setSelectedCohortId] = useState<string>('all');
   const [drafts, setDrafts] = useState<Record<string, MilestoneDraft>>({});
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [creatingCohort, setCreatingCohort] = useState(false);
+  const [cohortName, setCohortName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [createInput, setCreateInput] = useState<MilestoneDraft>({
+  const [createInput, setCreateInput] = useState<CreateMilestoneInput>({
+    cohort_id: '',
     title: '',
     stage: 'draft_review',
     due_date: '',
   });
 
-  async function loadMilestones(): Promise<void> {
+  const loadMilestones = useCallback(async (): Promise<void> => {
     setLoading(true);
     setError(null);
     try {
-      const response = await apiRequest<MilestonesResponse>('/milestones');
-      setMilestones(response.milestones);
+      const [cohortsResponse, milestonesResponse] = await Promise.all([
+        apiRequest<{ cohorts: CohortRecord[] }>('/cohorts'),
+        apiRequest<MilestonesResponse>('/milestones'),
+      ]);
+
+      setCohorts(cohortsResponse.cohorts);
+      setMilestones(milestonesResponse.milestones);
+
+      if (cohortsResponse.cohorts.length > 0) {
+        const fallbackCohortId = cohortsResponse.cohorts[0].id;
+        setCreateInput((previous) => ({
+          ...previous,
+          cohort_id: previous.cohort_id || fallbackCohortId,
+        }));
+      }
+
       const nextDrafts: Record<string, MilestoneDraft> = {};
-      for (const milestone of response.milestones) {
+      for (const milestone of milestonesResponse.milestones) {
         nextDrafts[milestone.id] = {
           title: milestone.title,
           stage: milestone.stage,
@@ -665,11 +965,11 @@ export function ProfessorMilestonesPage(): JSX.Element {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
     void loadMilestones();
-  }, []);
+  }, [loadMilestones]);
 
   async function handleCreate(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -677,18 +977,58 @@ export function ProfessorMilestonesPage(): JSX.Element {
     setError(null);
     setNotice(null);
 
+    if (!createInput.cohort_id) {
+      setCreating(false);
+      setError('Select a cohort before creating a milestone.');
+      return;
+    }
+
     try {
       await apiRequest<{ milestone: MilestoneRecord }>('/milestones', {
         method: 'POST',
         body: createInput,
       });
-      setCreateInput({ title: '', stage: 'draft_review', due_date: '' });
+      setCreateInput((previous) => ({
+        ...previous,
+        title: '',
+        stage: 'draft_review',
+        due_date: '',
+      }));
       setNotice('Milestone created.');
       await loadMilestones();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not create milestone.');
     } finally {
       setCreating(false);
+    }
+  }
+
+  async function handleCreateCohort(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    const name = cohortName.trim();
+    if (!name) {
+      setError('Cohort name is required.');
+      return;
+    }
+
+    setCreatingCohort(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await apiRequest<{ cohort: CohortRecord }>('/cohorts', {
+        method: 'POST',
+        body: {
+          name,
+          citation_style: 'APA',
+        },
+      });
+      setCohortName('');
+      setNotice('Cohort created.');
+      await loadMilestones();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not create cohort.');
+    } finally {
+      setCreatingCohort(false);
     }
   }
 
@@ -716,11 +1056,48 @@ export function ProfessorMilestonesPage(): JSX.Element {
     }
   }
 
+  const visibleMilestones = useMemo(() => {
+    if (selectedCohortId === 'all') {
+      return milestones;
+    }
+
+    return milestones.filter((milestone) => milestone.cohort_id === selectedCohortId);
+  }, [milestones, selectedCohortId]);
+
   return (
     <div className="professor-page-grid">
       <section className="placeholder-card">
+        <h2>Create Cohort</h2>
+        <form className="professor-form-grid" onSubmit={(event) => void handleCreateCohort(event)}>
+          <input
+            className="text-field"
+            placeholder="Cohort name"
+            value={cohortName}
+            onChange={(event) => setCohortName(event.target.value)}
+          />
+          <button type="submit" className="btn btn-muted" disabled={creatingCohort}>
+            {creatingCohort ? 'Creating...' : 'Create Cohort'}
+          </button>
+        </form>
+      </section>
+
+      <section className="placeholder-card">
         <h2>Create Milestone</h2>
         <form className="professor-form-grid" onSubmit={(event) => void handleCreate(event)}>
+          <select
+            className="text-field"
+            value={createInput.cohort_id}
+            onChange={(event) =>
+              setCreateInput((previous) => ({ ...previous, cohort_id: event.target.value }))
+            }
+          >
+            {cohorts.length === 0 ? <option value="">No cohorts available</option> : null}
+            {cohorts.map((cohort) => (
+              <option key={cohort.id} value={cohort.id}>
+                {cohort.name} ({cohort.student_count} students)
+              </option>
+            ))}
+          </select>
           <input
             className="text-field"
             placeholder="Milestone title"
@@ -759,24 +1136,40 @@ export function ProfessorMilestonesPage(): JSX.Element {
       </section>
 
       <section className="placeholder-card">
-        <h2>Your Milestones</h2>
+        <div className="professor-section-header">
+          <h2>Your Milestones</h2>
+          <select
+            className="text-field"
+            value={selectedCohortId}
+            onChange={(event) => setSelectedCohortId(event.target.value)}
+          >
+            <option value="all">All Cohorts</option>
+            {cohorts.map((cohort) => (
+              <option key={cohort.id} value={cohort.id}>
+                {cohort.name}
+              </option>
+            ))}
+          </select>
+        </div>
         {loading ? (
           <p>Loading milestones...</p>
-        ) : milestones.length === 0 ? (
+        ) : visibleMilestones.length === 0 ? (
           <p>No milestones created yet.</p>
         ) : (
           <table className="simple-table">
             <thead>
               <tr>
+                <th>Cohort</th>
                 <th>Title</th>
                 <th>Stage</th>
                 <th>Due Date</th>
+                <th>Completion</th>
                 <th>Due In</th>
                 <th>Save</th>
               </tr>
             </thead>
             <tbody>
-              {milestones.map((milestone) => {
+              {visibleMilestones.map((milestone) => {
                 const draft = drafts[milestone.id] ?? {
                   title: milestone.title,
                   stage: milestone.stage,
@@ -785,6 +1178,7 @@ export function ProfessorMilestonesPage(): JSX.Element {
 
                 return (
                   <tr key={milestone.id}>
+                    <td>{milestone.cohort_name}</td>
                     <td>
                       <input
                         className="text-field"
@@ -829,6 +1223,10 @@ export function ProfessorMilestonesPage(): JSX.Element {
                       />
                     </td>
                     <td>
+                      {milestone.completion.completed_students}/
+                      {milestone.completion.total_students} complete
+                    </td>
+                    <td>
                       {milestone.due_in_days === null
                         ? 'N/A'
                         : milestone.due_in_days < 0
@@ -857,7 +1255,6 @@ export function ProfessorMilestonesPage(): JSX.Element {
     </div>
   );
 }
-
 export function ProfessorAnalyticsPage(): JSX.Element {
   const [data, setData] = useState<ProfessorAnalyticsResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -933,24 +1330,13 @@ export function ProfessorAnalyticsPage(): JSX.Element {
         {data.progress_trend.length === 0 ? (
           <p>No trend data yet.</p>
         ) : (
-          <table className="simple-table">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Average Progress</th>
-                <th>Samples</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.progress_trend.map((entry) => (
-                <tr key={entry.date}>
-                  <td>{formatDateOnly(entry.date)}</td>
-                  <td>{entry.average_progress}%</td>
-                  <td>{entry.samples}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <LineChart
+            data={data.progress_trend.map((entry, idx) => ({
+              x: idx + 1,
+              y: entry.average_progress,
+              label: `${formatDateOnly(entry.date)}: ${entry.average_progress}% (${entry.samples} samples)`,
+            }))}
+          />
         )}
       </section>
 
@@ -959,22 +1345,13 @@ export function ProfessorAnalyticsPage(): JSX.Element {
         {data.submission_activity.length === 0 ? (
           <p>No submission activity yet.</p>
         ) : (
-          <table className="simple-table">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Submissions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.submission_activity.map((entry) => (
-                <tr key={entry.date}>
-                  <td>{formatDateOnly(entry.date)}</td>
-                  <td>{entry.submissions}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <BarChart
+            data={data.submission_activity.map((entry) => ({
+              x: entry.date,
+              y: entry.submissions,
+              label: `${formatDateOnly(entry.date)}: ${entry.submissions} submissions`,
+            }))}
+          />
         )}
       </section>
 
@@ -1047,6 +1424,26 @@ export function ProfessorStudentDetailPage({ thesisId }: { thesisId: string }): 
   useEffect(() => {
     void loadDetail();
   }, [loadDetail]);
+
+  useEffect(() => {
+    const unsubDashboard = subscribeRealtime<{ studentId?: string }>(
+      'dashboard.student_update',
+      (payload) => {
+        if (detail?.student.id && payload.studentId && payload.studentId !== detail.student.id) {
+          return;
+        }
+        void loadDetail();
+      },
+    );
+    const unsubPlagiarism = subscribeRealtime('plagiarism.ready', () => {
+      void loadDetail();
+    });
+
+    return () => {
+      unsubDashboard();
+      unsubPlagiarism();
+    };
+  }, [detail?.student.id, loadDetail]);
 
   useEffect(() => {
     const comparison = detail?.comparison;
@@ -1310,11 +1707,19 @@ export function ProfessorStudentDetailPage({ thesisId }: { thesisId: string }): 
                         <span className="pr-line-no" aria-hidden="true">
                           {row.left_line ?? ''}
                         </span>
-                        <pre className="pr-line-text">{row.left_text || ' '}</pre>
+                        {row.type === 'removal' ? (
+                          renderWordDiff(row.left_text || ' ', row.right_text || ' ', 'left')
+                        ) : (
+                          <pre className="pr-line-text">{row.left_text || ' '}</pre>
+                        )}
                         <span className="pr-line-no" aria-hidden="true">
                           {row.right_line ?? ''}
                         </span>
-                        <pre className="pr-line-text">{row.right_text || ' '}</pre>
+                        {row.type === 'addition' ? (
+                          renderWordDiff(row.left_text || ' ', row.right_text || ' ', 'right')
+                        ) : (
+                          <pre className="pr-line-text">{row.right_text || ' '}</pre>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1390,29 +1795,38 @@ export function ProfessorStudentDetailPage({ thesisId }: { thesisId: string }): 
           {detail.history.progress.length === 0 ? (
             <p>No progress history yet.</p>
           ) : (
-            <table className="simple-table">
-              <thead>
-                <tr>
-                  <th>Version</th>
-                  <th>Progress</th>
-                  <th>Trend</th>
-                  <th>Date</th>
-                </tr>
-              </thead>
-              <tbody>
-                {detail.history.progress.map((entry) => (
-                  <tr key={`progress-${entry.version_number}`}>
-                    <td>V{entry.version_number}</td>
-                    <td>{entry.progress_score}%</td>
-                    <td className={entry.trend_delta >= 0 ? 'trend-up' : 'trend-down'}>
-                      {entry.trend_delta >= 0 ? '+' : ''}
-                      {entry.trend_delta}
-                    </td>
-                    <td>{formatDate(entry.created_at)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <>
+              <LineChart
+                data={detail.history.progress.map((p) => ({
+                  x: p.version_number,
+                  y: p.progress_score,
+                  label: `V${p.version_number}: ${p.progress_score}%`,
+                }))}
+              />
+              <div
+                style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem', flexWrap: 'wrap' }}
+              >
+                <span
+                  className="metric-card"
+                  style={{ padding: '0.4rem 0.75rem', fontSize: '0.8rem' }}
+                >
+                  Min: {Math.min(...detail.history.progress.map((p) => p.progress_score))}%
+                </span>
+                <span
+                  className="metric-card"
+                  style={{ padding: '0.4rem 0.75rem', fontSize: '0.8rem' }}
+                >
+                  Max: {Math.max(...detail.history.progress.map((p) => p.progress_score))}%
+                </span>
+                <span
+                  className="metric-card"
+                  style={{ padding: '0.4rem 0.75rem', fontSize: '0.8rem' }}
+                >
+                  Latest:{' '}
+                  {detail.history.progress[detail.history.progress.length - 1].progress_score}%
+                </span>
+              </div>
+            </>
           )}
         </article>
 
@@ -1453,16 +1867,308 @@ export function ProfessorStudentDetailPage({ thesisId }: { thesisId: string }): 
         {detail.history.timeline.length === 0 ? (
           <p>No timeline events yet.</p>
         ) : (
-          <ul className="professor-timeline">
-            {detail.history.timeline.map((entry) => (
-              <li key={entry.id}>
-                <strong>{entry.label}</strong>
-                <span>{formatDate(entry.timestamp)}</span>
-              </li>
-            ))}
-          </ul>
+          <VisualTimeline entries={detail.history.timeline} />
         )}
       </section>
+    </div>
+  );
+}
+
+export function ProfessorCohortsPage(): JSX.Element {
+  const [cohorts, setCohorts] = useState<CohortRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [createInput, setCreateInput] = useState({ name: '', citation_style: 'APA' });
+  const [creating, setCreating] = useState(false);
+  const [activeCohortId, setActiveCohortId] = useState<string | null>(null);
+  const [enrollments, setEnrollments] = useState<Record<string, EnrollmentRecord[]>>({});
+  const [enrollmentsLoading, setEnrollmentsLoading] = useState<Record<string, boolean>>({});
+  const [supervisedStudents, setSupervisedStudents] = useState<ProfessorStudentRow[]>([]);
+  const [enrollInput, setEnrollInput] = useState<Record<string, string>>({});
+  const [enrolling, setEnrolling] = useState<Record<string, boolean>>({});
+
+  const loadData = useCallback(async (): Promise<void> => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [cohortsRes, studentsRes] = await Promise.all([
+        apiRequest<CohortsResponse>('/cohorts'),
+        apiRequest<{ students: ProfessorStudentRow[] }>('/dashboard/professor/students'),
+      ]);
+      setCohorts(cohortsRes.cohorts);
+      setSupervisedStudents(studentsRes.students);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load cohorts.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadData();
+  }, [loadData]);
+
+  const loadEnrollments = async (cohortId: string): Promise<void> => {
+    if (enrollments[cohortId]) return;
+    setEnrollmentsLoading((prev) => ({ ...prev, [cohortId]: true }));
+    try {
+      const res = await apiRequest<EnrollmentsResponse>(`/cohorts/${cohortId}/enrollments`);
+      setEnrollments((prev) => ({ ...prev, [cohortId]: res.enrollments }));
+    } catch {
+      setEnrollments((prev) => ({ ...prev, [cohortId]: [] }));
+    } finally {
+      setEnrollmentsLoading((prev) => ({ ...prev, [cohortId]: false }));
+    }
+  };
+
+  const handleToggleCohort = async (cohortId: string): Promise<void> => {
+    if (activeCohortId === cohortId) {
+      setActiveCohortId(null);
+      return;
+    }
+    setActiveCohortId(cohortId);
+    await loadEnrollments(cohortId);
+  };
+
+  const handleCreateCohort = async (e: FormEvent): Promise<void> => {
+    e.preventDefault();
+    if (!createInput.name.trim()) return;
+    setCreating(true);
+    try {
+      await apiRequest('/cohorts', { method: 'POST', body: createInput });
+      setCreateInput({ name: '', citation_style: 'APA' });
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create cohort.');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleEnroll = async (cohortId: string): Promise<void> => {
+    const studentId = enrollInput[cohortId];
+    if (!studentId) return;
+    setEnrolling((prev) => ({ ...prev, [cohortId]: true }));
+    try {
+      await apiRequest(`/cohorts/${cohortId}/enrollments`, {
+        method: 'POST',
+        body: { student_id: studentId },
+      });
+      setEnrollments((prev) => ({
+        ...prev,
+        [cohortId]: undefined as unknown as EnrollmentRecord[],
+      }));
+      setEnrollInput((prev) => ({ ...prev, [cohortId]: '' }));
+      await loadEnrollments(cohortId);
+      setCohorts((prev) =>
+        prev.map((c) => (c.id === cohortId ? { ...c, student_count: c.student_count + 1 } : c)),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to enroll student.');
+    } finally {
+      setEnrolling((prev) => ({ ...prev, [cohortId]: false }));
+    }
+  };
+
+  if (loading) return <LoadingCard message="Loading cohorts..." />;
+  if (error) return <ErrorCard message={error} />;
+
+  return (
+    <div className="professor-page-grid">
+      <section className="placeholder-card">
+        <h2>Create Cohort</h2>
+        <form
+          onSubmit={(e) => {
+            void handleCreateCohort(e);
+          }}
+          style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'flex-end' }}
+        >
+          <div>
+            <label
+              htmlFor="cohort-name"
+              style={{ display: 'block', fontSize: '0.8rem', marginBottom: '0.25rem' }}
+            >
+              Name
+            </label>
+            <input
+              id="cohort-name"
+              className="form-input"
+              type="text"
+              value={createInput.name}
+              onChange={(e) => setCreateInput((prev) => ({ ...prev, name: e.target.value }))}
+              placeholder="e.g. MSc 2026 Cohort"
+              required
+            />
+          </div>
+          <div>
+            <label
+              htmlFor="cohort-style"
+              style={{ display: 'block', fontSize: '0.8rem', marginBottom: '0.25rem' }}
+            >
+              Citation Style
+            </label>
+            <select
+              id="cohort-style"
+              className="form-input"
+              value={createInput.citation_style}
+              onChange={(e) =>
+                setCreateInput((prev) => ({ ...prev, citation_style: e.target.value }))
+              }
+            >
+              {['APA', 'MLA', 'Chicago', 'Harvard', 'IEEE'].map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </div>
+          <button type="submit" className="btn btn-primary" disabled={creating}>
+            {creating ? 'Creating…' : 'Create Cohort'}
+          </button>
+        </form>
+      </section>
+
+      {cohorts.length === 0 ? (
+        <section className="placeholder-card">
+          <p>No cohorts yet. Create your first cohort above.</p>
+        </section>
+      ) : (
+        <section className="workspace-metrics-grid">
+          {cohorts.map((cohort) => {
+            const isExpanded = activeCohortId === cohort.id;
+            const cohortEnrollments = enrollments[cohort.id] ?? [];
+            const enrolledIds = new Set(cohortEnrollments.map((e) => e.student_id));
+            const availableStudents = supervisedStudents.filter(
+              (s) => !enrolledIds.has(s.student_id),
+            );
+
+            return (
+              <article key={cohort.id} className="metric-card" style={{ gridColumn: 'span 2' }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'flex-start',
+                  }}
+                >
+                  <div>
+                    <h3 style={{ margin: 0 }}>{cohort.name}</h3>
+                    <p
+                      style={{
+                        margin: '0.25rem 0 0',
+                        fontSize: '0.82rem',
+                        color: 'var(--text-secondary, #666)',
+                      }}
+                    >
+                      {cohort.citation_style} · {cohort.student_count} student
+                      {cohort.student_count !== 1 ? 's' : ''} · Created{' '}
+                      {formatDateOnly(cohort.created_at)}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={() => {
+                      void handleToggleCohort(cohort.id);
+                    }}
+                  >
+                    {isExpanded ? 'Close ▲' : 'Manage ▼'}
+                  </button>
+                </div>
+
+                {isExpanded && (
+                  <div
+                    style={{
+                      marginTop: '1rem',
+                      borderTop: '1px solid var(--border)',
+                      paddingTop: '1rem',
+                    }}
+                  >
+                    {enrollmentsLoading[cohort.id] ? (
+                      <p>Loading enrollments…</p>
+                    ) : (
+                      <>
+                        <h4 style={{ marginTop: 0 }}>Enrolled Students</h4>
+                        {cohortEnrollments.length === 0 ? (
+                          <p style={{ fontSize: '0.85rem' }}>No students enrolled yet.</p>
+                        ) : (
+                          <table className="simple-table">
+                            <thead>
+                              <tr>
+                                <th>Name</th>
+                                <th>Email</th>
+                                <th>Enrolled</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {cohortEnrollments.map((e) => (
+                                <tr key={e.id}>
+                                  <td>{e.student_name}</td>
+                                  <td>{e.student_email}</td>
+                                  <td>{formatDateOnly(e.enrolled_at)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        )}
+
+                        <div
+                          style={{
+                            marginTop: '1rem',
+                            display: 'flex',
+                            gap: '0.75rem',
+                            alignItems: 'center',
+                            flexWrap: 'wrap',
+                          }}
+                        >
+                          <h4 style={{ margin: 0 }}>Enroll Student</h4>
+                          {availableStudents.length === 0 ? (
+                            <span
+                              style={{ fontSize: '0.85rem', color: 'var(--text-secondary, #666)' }}
+                            >
+                              All supervised students already enrolled.
+                            </span>
+                          ) : (
+                            <>
+                              <select
+                                className="form-input"
+                                value={enrollInput[cohort.id] ?? ''}
+                                onChange={(e) =>
+                                  setEnrollInput((prev) => ({
+                                    ...prev,
+                                    [cohort.id]: e.target.value,
+                                  }))
+                                }
+                              >
+                                <option value="">Select student…</option>
+                                {availableStudents.map((s) => (
+                                  <option key={s.student_id} value={s.student_id}>
+                                    {s.student_name}
+                                  </option>
+                                ))}
+                              </select>
+                              <button
+                                type="button"
+                                className="btn btn-primary"
+                                disabled={!enrollInput[cohort.id] || enrolling[cohort.id]}
+                                onClick={() => {
+                                  void handleEnroll(cohort.id);
+                                }}
+                              >
+                                {enrolling[cohort.id] ? 'Enrolling…' : 'Enroll'}
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+              </article>
+            );
+          })}
+        </section>
+      )}
     </div>
   );
 }

@@ -64,6 +64,7 @@ services:
       FRONTEND_URL: http://localhost:5173
       CORS_ORIGIN: http://localhost:5173
       RESET_TOKEN_TTL_MINUTES: 30
+      API_BASE_URL: http://localhost:3000
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
       MINIO_USE_SSL: 'false'
@@ -78,10 +79,13 @@ services:
       AZURE_OPENAI_DEPLOYMENT: ''
       AZURE_SPEECH_KEY: ''
       AZURE_SPEECH_REGION: ''
+      AZURE_LANGUAGE_KEY: ''
+      AZURE_LANGUAGE_ENDPOINT: ''
       AZURE_COGNITIVE_KEY: ''
       AZURE_COGNITIVE_ENDPOINT: ''
       COPYLEAKS_EMAIL: ''
       COPYLEAKS_API_KEY: ''
+      SEMANTIC_SCHOLAR_API_KEY: ''
     command: sh -c "npm install && npm run start:dev -w @supervise-ai/api"
     volumes:
       - ./:/app

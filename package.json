@@ -17,6 +17,7 @@
     "typecheck": "npm run typecheck -ws --if-present",
     "lint": "npm run lint -ws --if-present",
     "test": "npm run test -ws --if-present",
+    "smoke:demo": "node scripts/smoke-demo.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint-staged": "lint-staged",

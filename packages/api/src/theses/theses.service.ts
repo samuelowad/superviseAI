@@ -7,6 +7,8 @@ import { CitationReport } from '../analysis/entities/citation-report.entity';
 import { PlagiarismReport } from '../analysis/entities/plagiarism-report.entity';
 import { ThesisAnalysis } from '../analysis/entities/thesis-analysis.entity';
 import { CoachingSession } from '../coaching/entities/coaching-session.entity';
+import { CohortsService } from '../cohorts/cohorts.service';
+import { Milestone } from '../milestones/entities/milestone.entity';
 import { Submission, SubmissionStatus } from '../submissions/entities/submission.entity';
 import { User, UserRole } from '../users/user.entity';
 import { CreateThesisDto } from './dto/create-thesis.dto';
@@ -52,6 +54,9 @@ export class ThesesService {
     private readonly coachingSessionRepository: Repository<CoachingSession>,
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    @InjectRepository(Milestone)
+    private readonly milestoneRepository: Repository<Milestone>,
+    private readonly cohortsService: CohortsService,
   ) {}
 
   async create(studentId: string, dto: CreateThesisDto): Promise<{ thesis: Thesis }> {
@@ -78,7 +83,15 @@ export class ThesesService {
       latestFeedbackAt: null,
     });
 
-    return { thesis: await this.thesisRepository.save(thesis) };
+    const savedThesis = await this.thesisRepository.save(thesis);
+    if (savedThesis.supervisorId) {
+      await this.cohortsService.ensureEnrollmentInProfessorDefaultCohort(
+        savedThesis.supervisorId,
+        savedThesis.studentId,
+      );
+    }
+
+    return { thesis: savedThesis };
   }
 
   async searchProfessors(query: string): Promise<{ professors: Array<Record<string, string>> }> {
@@ -142,6 +155,12 @@ export class ThesesService {
     }
 
     thesis.status = ThesisStatus.SUBMITTED_TO_PROF;
+    if (thesis.supervisorId) {
+      await this.cohortsService.ensureEnrollmentInProfessorDefaultCohort(
+        thesis.supervisorId,
+        thesis.studentId,
+      );
+    }
     await this.thesisRepository.save(thesis);
 
     return { status: thesis.status };
@@ -177,14 +196,12 @@ export class ThesesService {
       where: { thesisId: thesis.id },
       order: { createdAt: 'DESC' },
     });
-
-    const milestoneDueDate = new Date();
-    milestoneDueDate.setDate(milestoneDueDate.getDate() + 10);
-
-    const dueInDays = Math.max(
-      0,
-      Math.ceil((milestoneDueDate.getTime() - Date.now()) / (24 * 60 * 60 * 1000)),
-    );
+    const activeMilestone = await this.resolveActiveMilestoneForThesis(thesis);
+    const dueInDays = activeMilestone?.dueInDays ?? null;
+    const milestoneTitle = activeMilestone?.title ?? 'No milestone set';
+    const milestoneDueDate = activeMilestone?.dueDate ?? null;
+    const milestoneId = activeMilestone?.id ?? null;
+    const milestoneStatus = this.getMilestoneStatusLabel(thesis.status);
 
     const statusLabel = this.getStatusLabel(thesis.status);
     const supervisorStatus = thesis.supervisorName
@@ -251,7 +268,7 @@ export class ThesesService {
         citation_health_score: citation?.citationHealthScore ?? 0,
         citation_issues: citation?.issuesCount ?? 0,
         plagiarism_similarity: plagiarism?.similarityPercent ?? 0,
-        next_milestone: 'Draft Review',
+        next_milestone: milestoneTitle,
         due_in_days: dueInDays,
       },
       central_panel: centralPanel,
@@ -267,9 +284,11 @@ export class ThesesService {
           formatting_errors: citation?.formattingErrors ?? [],
         },
         milestone: {
-          next_milestone: 'Draft Review',
+          id: milestoneId,
+          next_milestone: milestoneTitle,
+          due_date: milestoneDueDate,
           due_in_days: dueInDays,
-          status: thesis.status,
+          status: milestoneStatus,
         },
         latest_professor_feedback: {
           text: thesis.latestProfessorFeedback ?? 'No professor feedback yet.',
@@ -360,12 +379,7 @@ export class ThesesService {
     professorId: string,
     thesisId: string,
   ): Promise<Record<string, unknown>> {
-    const thesis = await this.thesisRepository.findOne({
-      where: { id: thesisId, supervisorId: professorId },
-    });
-    if (!thesis) {
-      throw new NotFoundException('Thesis not found for this professor.');
-    }
+    const thesis = await this.findProfessorScopedThesisById(professorId, thesisId);
 
     const student = await this.userRepository.findOne({
       where: { id: thesis.studentId },
@@ -580,12 +594,7 @@ export class ThesesService {
     thesisId: string,
     input: { action: ReviewAction; feedback?: string },
   ): Promise<Record<string, unknown>> {
-    const thesis = await this.thesisRepository.findOne({
-      where: { id: thesisId, supervisorId: professorId },
-    });
-    if (!thesis) {
-      throw new NotFoundException('Thesis not found for this professor.');
-    }
+    const thesis = await this.findProfessorScopedThesisById(professorId, thesisId);
 
     const feedback = input.feedback?.trim() ?? '';
     if (
@@ -730,10 +739,7 @@ export class ThesesService {
   }
 
   private async buildProfessorSnapshots(professorId: string): Promise<ProfessorStudentSnapshot[]> {
-    const theses = await this.thesisRepository.find({
-      where: { supervisorId: professorId },
-      order: { updatedAt: 'DESC' },
-    });
+    const theses = await this.getProfessorScopedTheses(professorId);
 
     if (theses.length === 0) {
       return [];
@@ -807,6 +813,68 @@ export class ThesesService {
     });
   }
 
+  private async getProfessorScopedTheses(professorId: string): Promise<Thesis[]> {
+    const studentIds = await this.cohortsService.getProfessorScopedStudentIds(professorId);
+    const enrolledTheses = studentIds.length
+      ? await this.thesisRepository.find({
+          where: { studentId: In(studentIds) },
+          order: { updatedAt: 'DESC' },
+        })
+      : [];
+
+    const enrolledStudentIds = new Set(enrolledTheses.map((thesis) => thesis.studentId));
+    const legacySupervisorTheses = await this.thesisRepository.find({
+      where: { supervisorId: professorId },
+      order: { updatedAt: 'DESC' },
+    });
+
+    const backfillTargets = legacySupervisorTheses.filter(
+      (thesis) => !enrolledStudentIds.has(thesis.studentId),
+    );
+    await Promise.all(
+      backfillTargets.map((thesis) =>
+        this.cohortsService.ensureEnrollmentInProfessorDefaultCohort(professorId, thesis.studentId),
+      ),
+    );
+
+    const uniqueById = new Map<string, Thesis>();
+    for (const thesis of [...enrolledTheses, ...legacySupervisorTheses]) {
+      uniqueById.set(thesis.id, thesis);
+    }
+
+    return [...uniqueById.values()].sort(
+      (left, right) => right.updatedAt.getTime() - left.updatedAt.getTime(),
+    );
+  }
+
+  private async findProfessorScopedThesisById(
+    professorId: string,
+    thesisId: string,
+  ): Promise<Thesis> {
+    const thesis = await this.thesisRepository.findOne({ where: { id: thesisId } });
+    if (!thesis) {
+      throw new NotFoundException('Thesis not found for this professor.');
+    }
+
+    if (thesis.supervisorId === professorId) {
+      await this.cohortsService.ensureEnrollmentInProfessorDefaultCohort(
+        professorId,
+        thesis.studentId,
+      );
+      return thesis;
+    }
+
+    const hasScope = await this.cohortsService.isStudentInProfessorScope(
+      professorId,
+      thesis.studentId,
+    );
+    if (!hasScope) {
+      throw new NotFoundException('Thesis not found for this professor.');
+    }
+
+    return thesis;
+  }
+
   private buildRiskAssessment(input: {
     progressScore: number | null;
     trendDelta: number | null;
@@ -851,6 +919,64 @@ export class ThesesService {
     }
 
     return { level: 'yellow', reasons };
+  }
+
+  private async resolveActiveMilestoneForThesis(
+    thesis: Thesis,
+  ): Promise<{ id: string; title: string; dueDate: string; dueInDays: number } | null> {
+    const scopedCohortIds = thesis.supervisorId
+      ? await this.cohortsService.getStudentCohortIdsForProfessor(
+          thesis.studentId,
+          thesis.supervisorId,
+        )
+      : [];
+    const cohortIds =
+      scopedCohortIds.length > 0
+        ? scopedCohortIds
+        : await this.cohortsService.getStudentCohortIds(thesis.studentId);
+
+    if (cohortIds.length === 0) {
+      return null;
+    }
+
+    const milestones = await this.milestoneRepository.find({
+      where: { cohortId: In(cohortIds) },
+      order: { dueDate: 'ASC', createdAt: 'ASC' },
+    });
+    if (milestones.length === 0) {
+      return null;
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const upcoming =
+      milestones.find((milestone) => milestone.dueDate >= today) ?? milestones.at(-1) ?? null;
+    if (!upcoming) {
+      return null;
+    }
+
+    const dueTime = new Date(upcoming.dueDate).getTime();
+    const dueInDays = Number.isNaN(dueTime)
+      ? 0
+      : Math.ceil((dueTime - Date.now()) / (24 * 60 * 60 * 1000));
+
+    return {
+      id: upcoming.id,
+      title: upcoming.title,
+      dueDate: upcoming.dueDate,
+      dueInDays,
+    };
+  }
+
+  private getMilestoneStatusLabel(status: ThesisStatus): string {
+    const labels: Record<ThesisStatus, string> = {
+      [ThesisStatus.DRAFT]: 'Pending Student Submission',
+      [ThesisStatus.SUPERVISED]: 'Approved by Professor',
+      [ThesisStatus.SUBMITTED_TO_PROF]: 'Submitted to Professor',
+      [ThesisStatus.RETURNED_TO_STUDENT]: 'Returned for Revisions',
+      [ThesisStatus.COMPLETED]: 'Completed',
+    };
+
+    return labels[status];
   }
 
   private getStatusLabel(status: ThesisStatus): string {

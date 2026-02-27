@@ -36,7 +36,7 @@ interface WorkspaceResponse {
     citation_issues: number;
     plagiarism_similarity: number;
     next_milestone: string;
-    due_in_days: number;
+    due_in_days: number | null;
   };
   central_panel: {
     mode: 'first_submission' | 'version_comparison';
@@ -95,8 +95,10 @@ interface WorkspaceResponse {
       formatting_errors: string[];
     };
     milestone: {
+      id: string | null;
       next_milestone: string;
-      due_in_days: number;
+      due_date: string | null;
+      due_in_days: number | null;
       status: string;
     };
     latest_professor_feedback: {
@@ -146,6 +148,83 @@ interface SpeechRecognitionLike {
   stop: () => void;
 }
 
+interface SubmissionDetail {
+  id: string;
+  version_number: number;
+  status: string;
+  created_at: string;
+  analysis?: {
+    progress_score: number;
+    key_gaps: string[];
+  } | null;
+  citations?: {
+    health_score: number;
+    issues_count: number;
+  } | null;
+  plagiarism?: {
+    similarity_percent: number;
+    risk_level: 'green' | 'yellow' | 'red';
+  } | null;
+}
+
+function wordDiff(a: string, b: string): Array<{ text: string; type: 'equal' | 'remove' | 'add' }> {
+  const tokA = a.split(/(\s+)/);
+  const tokB = b.split(/(\s+)/);
+  const m = tokA.length;
+  const n = tokB.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array<number>(n + 1).fill(0));
+  for (let i = m - 1; i >= 0; i--) {
+    for (let j = n - 1; j >= 0; j--) {
+      dp[i][j] = tokA[i] === tokB[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+  const result: Array<{ text: string; type: 'equal' | 'remove' | 'add' }> = [];
+  let i = 0;
+  let j = 0;
+  while (i < m || j < n) {
+    if (i < m && j < n && tokA[i] === tokB[j]) {
+      result.push({ text: tokA[i], type: 'equal' });
+      i++;
+      j++;
+    } else if (j < n && (i >= m || dp[i][j + 1] >= dp[i + 1][j])) {
+      result.push({ text: tokB[j], type: 'add' });
+      j++;
+    } else {
+      result.push({ text: tokA[i], type: 'remove' });
+      i++;
+    }
+  }
+  return result;
+}
+
+function renderWordDiff(text: string, counterText: string, side: 'left' | 'right'): JSX.Element {
+  const segments = wordDiff(text, counterText);
+  return (
+    <pre className="pr-line-text">
+      {segments.map((seg, idx) => {
+        if (side === 'left' && seg.type === 'remove') {
+          return (
+            <mark key={idx} style={{ background: 'rgba(185,28,28,0.25)', borderRadius: '2px' }}>
+              {seg.text}
+            </mark>
+          );
+        }
+        if (side === 'right' && seg.type === 'add') {
+          return (
+            <mark key={idx} style={{ background: 'rgba(21,128,61,0.25)', borderRadius: '2px' }}>
+              {seg.text}
+            </mark>
+          );
+        }
+        if (seg.type === 'equal') {
+          return <span key={idx}>{seg.text}</span>;
+        }
+        return null;
+      })}
+    </pre>
+  );
+}
+
 function statusTone(status: string): 'info' | 'success' | 'warning' {
   if (status === 'Completed') {
     return 'success';
@@ -171,7 +250,10 @@ function formatDate(value: string | null): string {
   return date.toLocaleString();
 }
 
-async function uploadSubmission(file: File): Promise<{ submission_id: string; status: string }> {
+async function uploadSubmission(
+  file: File,
+  milestoneId?: string | null,
+): Promise<{ submission_id: string; status: string }> {
   const token = getAccessToken();
   if (!token) {
     throw new Error('You are not authenticated.');
@@ -179,6 +261,9 @@ async function uploadSubmission(file: File): Promise<{ submission_id: string; st
 
   const formData = new FormData();
   formData.append('file', file);
+  if (milestoneId) {
+    formData.append('milestone_id', milestoneId);
+  }
 
   const response = await fetch(
     `${import.meta.env.VITE_API_URL ?? 'http://localhost:3000/api/v1'}/submissions/upload`,
@@ -202,6 +287,18 @@ async function uploadSubmission(file: File): Promise<{ submission_id: string; st
   }
 
   return payload as { submission_id: string; status: string };
+}
+
+function formatDueText(dueInDays: number | null): string {
+  if (dueInDays === null) {
+    return 'No due date';
+  }
+
+  if (dueInDays < 0) {
+    return `Overdue by ${Math.abs(dueInDays)} day(s)`;
+  }
+
+  return `Due in ${dueInDays} day(s)`;
 }
 
 function WorkspaceHeader({
@@ -287,7 +384,7 @@ function MetricsRow({ workspace }: { workspace: WorkspaceResponse }): JSX.Elemen
       <article className="metric-card">
         <h3>Milestone</h3>
         <p className="metric-value small">{workspace.metrics.next_milestone}</p>
-        <p>Due in {workspace.metrics.due_in_days} day(s)</p>
+        <p>{formatDueText(workspace.metrics.due_in_days)}</p>
       </article>
     </section>
   );
@@ -549,9 +646,17 @@ function CentralPanel({ workspace }: { workspace: WorkspaceResponse }): JSX.Elem
                       role="row"
                     >
                       <span className="pr-line-no">{row.left_line ?? ''}</span>
-                      <pre className="pr-line-text">{row.left_text || ' '}</pre>
+                      {row.type === 'removal' ? (
+                        renderWordDiff(row.left_text || ' ', row.right_text || ' ', 'left')
+                      ) : (
+                        <pre className="pr-line-text">{row.left_text || ' '}</pre>
+                      )}
                       <span className="pr-line-no">{row.right_line ?? ''}</span>
-                      <pre className="pr-line-text">{row.right_text || ' '}</pre>
+                      {row.type === 'addition' ? (
+                        renderWordDiff(row.left_text || ' ', row.right_text || ' ', 'right')
+                      ) : (
+                        <pre className="pr-line-text">{row.right_text || ' '}</pre>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -661,7 +766,9 @@ function RightPanel({ workspace }: { workspace: WorkspaceResponse }): JSX.Elemen
         <summary>Milestone Tracker</summary>
         <div className="right-panel-card-body">
           <p>{workspace.right_panel.milestone.next_milestone}</p>
-          <p>Due in {workspace.right_panel.milestone.due_in_days} day(s)</p>
+          <p>{formatDueText(workspace.right_panel.milestone.due_in_days)}</p>
+          <p>Status: {workspace.right_panel.milestone.status}</p>
+          <p>Due Date: {workspace.right_panel.milestone.due_date ?? 'Not set'}</p>
         </div>
       </details>
 
@@ -1054,7 +1161,7 @@ export function StudentWorkspacePage(): JSX.Element {
     }, 600);
 
     try {
-      await uploadSubmission(file);
+      await uploadSubmission(file, workspace?.right_panel.milestone.id);
       window.clearInterval(timer);
       setUploadSteps(['done', 'done', 'done', 'done', 'done']);
       setNotice('New submission uploaded and processed successfully.');
@@ -1165,13 +1272,202 @@ export function StudentSubmissionsPage(): JSX.Element {
 }
 
 export function StudentHistoryPage(): JSX.Element {
+  const [workspace, setWorkspace] = useState<WorkspaceResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [submissionDetails, setSubmissionDetails] = useState<Record<string, SubmissionDetail>>({});
+  const [detailLoading, setDetailLoading] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    let active = true;
+    const load = async (): Promise<void> => {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await apiRequest<WorkspaceResponse>('/theses/me/workspace');
+        if (active) setWorkspace(data);
+      } catch (err) {
+        if (active) setError(err instanceof Error ? err.message : 'Failed to load history.');
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+    void load();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handleExpand = async (subId: string): Promise<void> => {
+    if (expandedId === subId) {
+      setExpandedId(null);
+      return;
+    }
+    setExpandedId(subId);
+    if (!submissionDetails[subId]) {
+      setDetailLoading((prev) => ({ ...prev, [subId]: true }));
+      try {
+        const detail = await apiRequest<SubmissionDetail>(`/submissions/${subId}`);
+        setSubmissionDetails((prev) => ({ ...prev, [subId]: detail }));
+      } catch {
+        // leave as empty if error
+      } finally {
+        setDetailLoading((prev) => ({ ...prev, [subId]: false }));
+      }
+    }
+  };
+
+  if (loading) {
+    return (
+      <section className="placeholder-card">
+        <h2>History</h2>
+        <div className="spinner" role="status" aria-label="Loading history" />
+      </section>
+    );
+  }
+
+  if (error) {
+    return (
+      <section className="placeholder-card">
+        <h2>History</h2>
+        <p style={{ color: 'var(--danger, #dc2626)' }}>{error}</p>
+      </section>
+    );
+  }
+
+  const submissions = workspace?.submissions ?? [];
+
+  if (!workspace?.thesis || submissions.length === 0) {
+    return (
+      <section className="placeholder-card">
+        <h2>History</h2>
+        <p>No submissions yet. Upload your first draft from the workspace.</p>
+      </section>
+    );
+  }
+
   return (
     <section className="placeholder-card">
-      <h2>History</h2>
-      <p>
-        Version timeline and rich diff history are tracked through the Thesis Workspace submission
-        stream.
+      <h2>Submission History</h2>
+      <p
+        style={{
+          marginBottom: '1.25rem',
+          color: 'var(--text-secondary, #666)',
+          fontSize: '0.9rem',
+        }}
+      >
+        {workspace.thesis.title}
       </p>
+      <div className="history-timeline">
+        {[...submissions].reverse().map((sub) => {
+          const isExpanded = expandedId === sub.id;
+          const detail = submissionDetails[sub.id];
+          const isDetailLoading = detailLoading[sub.id];
+
+          return (
+            <article key={sub.id} className="history-entry">
+              <div className="history-entry-header">
+                <span
+                  className="version-badge"
+                  style={{
+                    fontFamily: 'monospace',
+                    fontWeight: 800,
+                    color: 'var(--primary)',
+                    border: '1px solid var(--primary)',
+                    borderRadius: '6px',
+                    padding: '0.2rem 0.5rem',
+                    fontSize: '0.85rem',
+                  }}
+                >
+                  V{sub.version_number}
+                </span>
+                <span
+                  style={{ flex: 1, fontSize: '0.85rem', color: 'var(--text-secondary, #666)' }}
+                >
+                  {formatDate(sub.created_at)}
+                </span>
+                <span className={`status-pill status-${statusTone(sub.status)}`}>{sub.status}</span>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{ fontSize: '0.82rem' }}
+                  onClick={() => {
+                    void handleExpand(sub.id);
+                  }}
+                >
+                  {isExpanded ? 'Hide ▲' : 'View Analysis ▼'}
+                </button>
+              </div>
+
+              {isExpanded && (
+                <div
+                  style={{
+                    marginTop: '1rem',
+                    borderTop: '1px solid var(--border)',
+                    paddingTop: '1rem',
+                  }}
+                >
+                  {isDetailLoading ? (
+                    <div className="spinner" role="status" aria-label="Loading analysis" />
+                  ) : detail ? (
+                    <div
+                      className="workspace-metrics-grid"
+                      style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))' }}
+                    >
+                      {detail.analysis != null && (
+                        <article className="metric-card">
+                          <h3>Progress</h3>
+                          <p className="metric-value">{detail.analysis.progress_score}%</p>
+                        </article>
+                      )}
+                      {detail.citations != null && (
+                        <article className="metric-card">
+                          <h3>Citation Health</h3>
+                          <p className="metric-value">{detail.citations.health_score}%</p>
+                          <p>
+                            {detail.citations.issues_count} issue
+                            {detail.citations.issues_count !== 1 ? 's' : ''}
+                          </p>
+                        </article>
+                      )}
+                      {detail.plagiarism != null && (
+                        <article className="metric-card">
+                          <h3>Plagiarism</h3>
+                          <p className="metric-value">{detail.plagiarism.similarity_percent}%</p>
+                          {detail.plagiarism.risk_level ? (
+                            <p>{detail.plagiarism.risk_level.toUpperCase()}</p>
+                          ) : null}
+                        </article>
+                      )}
+                      {detail.analysis?.key_gaps && detail.analysis.key_gaps.length > 0 && (
+                        <article className="metric-card" style={{ gridColumn: 'span 2' }}>
+                          <h3>Key Gaps</h3>
+                          <ul style={{ margin: 0, paddingLeft: '1rem', fontSize: '0.82rem' }}>
+                            {detail.analysis.key_gaps.map((gap, idx) => (
+                              <li key={idx}>{gap}</li>
+                            ))}
+                          </ul>
+                        </article>
+                      )}
+                    </div>
+                  ) : (
+                    <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary, #666)' }}>
+                      Analysis not available for this submission.
+                    </p>
+                  )}
+                </div>
+              )}
+            </article>
+          );
+        })}
+      </div>
+
+      <style>{`
+        .history-timeline { display: grid; gap: 0.75rem; }
+        .history-entry { border: 1px solid var(--border); border-radius: 12px; background: white; padding: 1rem; }
+        .history-entry-header { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+      `}</style>
     </section>
   );
 }
@@ -1185,20 +1481,125 @@ export function StudentSettingsPage(): JSX.Element {
   );
 }
 
+type CoachingMode = 'mock_viva' | 'argument_defender' | 'socratic';
+type LearnerProfile = 'standard' | 'esl_support' | 'anxious_speaker' | 'advanced_researcher';
+type DifficultyBand = 'easy' | 'medium' | 'hard';
+
+interface TurnScores {
+  argument_strength: number;
+  evidence_quality: number;
+  logical_consistency: number;
+  clarity: number;
+  confidence: number;
+}
+
+interface LiveMetrics {
+  turn: number;
+  confidence: number;
+  sentiment: 'positive' | 'neutral' | 'negative';
+  difficulty: DifficultyBand;
+  scores: TurnScores;
+  trend: 'improving' | 'stable' | 'declining';
+  hesitation_signals: string[];
+}
+
+interface DimensionSummary {
+  averages: TurnScores;
+  first_turn: TurnScores;
+  last_turn: TurnScores;
+  deltas: TurnScores;
+  best_improved: keyof TurnScores;
+  weakest_persistent: keyof TurnScores;
+}
+
+interface SessionSummary {
+  mode?: CoachingMode;
+  learner_profile?: LearnerProfile;
+  readiness_score?: number;
+  weak_topics?: string[];
+  recommendation?: string;
+  dimension_summary?: DimensionSummary;
+  progress_delta?: number;
+  turns_completed?: number;
+}
+
+const COACHING_MODE_LABELS: Record<CoachingMode, string> = {
+  mock_viva: 'Mock Viva',
+  argument_defender: 'Argument Defender',
+  socratic: 'Socratic Coach',
+};
+
+const COACHING_MODE_DESCRIPTIONS: Record<CoachingMode, string> = {
+  mock_viva: 'Face a rigorous viva examination based on your actual thesis content.',
+  argument_defender: 'Defend specific claims in your thesis against a critical academic reviewer.',
+  socratic: 'Deepen your understanding through guided Socratic questioning.',
+};
+
+const LEARNER_PROFILE_LABELS: Record<LearnerProfile, string> = {
+  standard: 'Standard',
+  esl_support: 'ESL Support',
+  anxious_speaker: 'Anxious Speaker',
+  advanced_researcher: 'Advanced Researcher',
+};
+
+const LEARNER_PROFILE_DESCRIPTIONS: Record<LearnerProfile, string> = {
+  standard: 'Default coaching style suitable for most students.',
+  esl_support: 'Simpler language, slower progression, extra clarification prompts.',
+  anxious_speaker: 'Supportive tone, confidence-building follow-ups, reduced confrontation.',
+  advanced_researcher: 'Maximum rigour, stress-test methodology, fast difficulty ramp.',
+};
+
+const DIFFICULTY_COLORS: Record<DifficultyBand, string> = {
+  easy: '#16a34a',
+  medium: '#d97706',
+  hard: '#dc2626',
+};
+
+const TREND_ICONS: Record<string, string> = {
+  improving: '↑',
+  stable: '→',
+  declining: '↓',
+};
+
+const SCORE_LABELS: Record<keyof TurnScores, string> = {
+  argument_strength: 'Argument',
+  evidence_quality: 'Evidence',
+  logical_consistency: 'Logic',
+  clarity: 'Clarity',
+  confidence: 'Confidence',
+};
+
+function adaptationMessage(metrics: LiveMetrics): string {
+  if (metrics.difficulty === 'easy') {
+    return 'Coach reduced complexity due to lower confidence signals.';
+  }
+  if (metrics.difficulty === 'hard') {
+    return 'Coach increased rigour due to strong confidence signals.';
+  }
+  return 'Coach is maintaining balanced challenge depth.';
+}
+
 export function StudentMockVivaPage(): JSX.Element {
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
   const [workspace, setWorkspace] = useState<WorkspaceResponse | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [selectedMode, setSelectedMode] = useState<CoachingMode>('mock_viva');
+  const [selectedProfile, setSelectedProfile] = useState<LearnerProfile>('standard');
   const [messages, setMessages] = useState<VivaMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [questionIndex, setQuestionIndex] = useState(0);
   const [totalQuestions, setTotalQuestions] = useState(10);
-  const [summary, setSummary] = useState<Record<string, unknown> | null>(null);
+  const [summary, setSummary] = useState<SessionSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [voiceInputEnabled, setVoiceInputEnabled] = useState(false);
   const [voiceOutputEnabled, setVoiceOutputEnabled] = useState(true);
   const [isListening, setIsListening] = useState(false);
+  const [useAzureVoice, setUseAzureVoice] = useState(true);
+  const [liveMetrics, setLiveMetrics] = useState<LiveMetrics | null>(null);
+  const [metricsHistory, setMetricsHistory] = useState<LiveMetrics[]>([]);
 
   const speechRecognitionCtor =
     (
@@ -1216,6 +1617,7 @@ export function StudentMockVivaPage(): JSX.Element {
 
   const supportsSpeechRecognition = Boolean(speechRecognitionCtor);
   const supportsSpeechSynthesis = typeof window.speechSynthesis !== 'undefined';
+  const supportsMediaRecorder = typeof MediaRecorder !== 'undefined';
 
   useEffect(() => {
     void (async () => {
@@ -1230,7 +1632,7 @@ export function StudentMockVivaPage(): JSX.Element {
 
   useEffect(() => {
     const RecognitionCtor = speechRecognitionCtor;
-    if (!RecognitionCtor || !voiceInputEnabled) {
+    if (!RecognitionCtor || !voiceInputEnabled || useAzureVoice) {
       recognitionRef.current?.stop();
       recognitionRef.current = null;
       setIsListening(false);
@@ -1259,13 +1661,38 @@ export function StudentMockVivaPage(): JSX.Element {
       recognitionRef.current = null;
       setIsListening(false);
     };
-  }, [speechRecognitionCtor, voiceInputEnabled]);
+  }, [speechRecognitionCtor, voiceInputEnabled, useAzureVoice]);
 
-  function speakText(content: string): void {
-    if (!voiceOutputEnabled || !supportsSpeechSynthesis || !content.trim()) {
-      return;
+  async function speakText(content: string): Promise<void> {
+    if (!voiceOutputEnabled || !content.trim()) return;
+
+    // Try Azure TTS first
+    if (useAzureVoice) {
+      try {
+        const token = localStorage.getItem('auth_token') ?? '';
+        const resp = await fetch('/api/v1/coaching/tts', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ text: content.slice(0, 800) }),
+        });
+        if (resp.ok) {
+          const blob = await resp.blob();
+          const url = URL.createObjectURL(blob);
+          const audio = new Audio(url);
+          audio.onended = () => URL.revokeObjectURL(url);
+          void audio.play();
+          return;
+        }
+      } catch {
+        // fall through to browser TTS
+      }
     }
 
+    // Browser TTS fallback
+    if (!supportsSpeechSynthesis) return;
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(content);
     utterance.rate = 0.96;
@@ -1274,16 +1701,89 @@ export function StudentMockVivaPage(): JSX.Element {
   }
 
   function toggleListening(): void {
-    if (!voiceInputEnabled || !recognitionRef.current) {
+    if (!voiceInputEnabled) return;
+
+    // Azure STT: record via MediaRecorder and POST to /coaching/voice
+    if (useAzureVoice && supportsMediaRecorder) {
+      if (isListening) {
+        mediaRecorderRef.current?.stop();
+        setIsListening(false);
+        return;
+      }
+
+      setError(null);
+      void navigator.mediaDevices
+        .getUserMedia({ audio: true })
+        .then((stream) => {
+          const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+          audioChunksRef.current = [];
+          recorder.ondataavailable = (e) => {
+            if (e.data.size > 0) audioChunksRef.current.push(e.data);
+          };
+          recorder.onstop = () => {
+            stream.getTracks().forEach((t) => t.stop());
+            void (async () => {
+              if (!sessionId || audioChunksRef.current.length === 0) return;
+              setLoading(true);
+              try {
+                const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+                const formData = new FormData();
+                formData.append('audio', blob, 'recording.webm');
+                const token = localStorage.getItem('auth_token') ?? '';
+                const resp = await fetch(`/api/v1/coaching/voice?session_id=${sessionId}`, {
+                  method: 'POST',
+                  headers: { Authorization: `Bearer ${token}` },
+                  body: formData,
+                });
+                if (!resp.ok) throw new Error('Voice recognition failed.');
+                const result = (await resp.json()) as {
+                  ai_message: string;
+                  question_index: number;
+                  total_questions: number;
+                  transcribed_text: string;
+                  live_metrics?: LiveMetrics;
+                };
+                if (result.transcribed_text) {
+                  setMessages((current) => [
+                    ...current,
+                    { role: 'student', content: result.transcribed_text },
+                  ]);
+                }
+                setQuestionIndex(result.question_index);
+                setTotalQuestions(result.total_questions);
+                setMessages((current) => [
+                  ...current,
+                  { role: 'assistant', content: result.ai_message },
+                ]);
+                if (result.live_metrics) {
+                  setLiveMetrics(result.live_metrics);
+                  setMetricsHistory((current) => [...current, result.live_metrics as LiveMetrics]);
+                }
+                void speakText(result.ai_message);
+              } catch (err) {
+                setError(err instanceof Error ? err.message : 'Voice input failed.');
+              } finally {
+                setLoading(false);
+              }
+            })();
+          };
+          mediaRecorderRef.current = recorder;
+          recorder.start();
+          setIsListening(true);
+        })
+        .catch(() => {
+          setError('Microphone access denied. You can continue using text input.');
+        });
       return;
     }
 
+    // Browser Web Speech API fallback
+    if (!recognitionRef.current) return;
     if (isListening) {
       recognitionRef.current.stop();
       setIsListening(false);
       return;
     }
-
     setError(null);
     recognitionRef.current.start();
     setIsListening(true);
@@ -1291,7 +1791,7 @@ export function StudentMockVivaPage(): JSX.Element {
 
   async function startSession(): Promise<void> {
     if (!workspace?.thesis) {
-      setError('Create a thesis before starting mock viva.');
+      setError('Create a thesis before starting a coaching session.');
       return;
     }
 
@@ -1302,37 +1802,40 @@ export function StudentMockVivaPage(): JSX.Element {
     try {
       const result = await apiRequest<{
         session_id: string;
+        mode: CoachingMode;
         question_index: number;
         total_questions: number;
         ai_message: string;
+        learner_profile?: LearnerProfile;
       }>('/coaching/start', {
         method: 'POST',
         body: {
           thesis_id: workspace.thesis.id,
+          mode: selectedMode,
+          learner_profile: selectedProfile,
         },
       });
 
       setSessionId(result.session_id);
       setQuestionIndex(result.question_index);
       setTotalQuestions(result.total_questions);
+      setLiveMetrics(null);
+      setMetricsHistory([]);
       setMessages([{ role: 'assistant', content: result.ai_message }]);
-      speakText(result.ai_message);
+      void speakText(result.ai_message);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to start mock viva.');
+      setError(err instanceof Error ? err.message : 'Unable to start coaching session.');
     } finally {
       setLoading(false);
     }
   }
 
   async function sendMessage(): Promise<void> {
-    if (!sessionId || !input.trim()) {
-      return;
-    }
+    if (!sessionId || !input.trim()) return;
 
     const content = input.trim();
     setInput('');
     setLoading(true);
-
     setMessages((current) => [...current, { role: 'student', content }]);
 
     try {
@@ -1340,18 +1843,21 @@ export function StudentMockVivaPage(): JSX.Element {
         ai_message: string;
         question_index: number;
         total_questions: number;
+        intent_blocked?: boolean;
+        live_metrics?: LiveMetrics;
       }>('/coaching/message', {
         method: 'POST',
-        body: {
-          session_id: sessionId,
-          content,
-        },
+        body: { session_id: sessionId, content },
       });
 
       setQuestionIndex(result.question_index);
       setTotalQuestions(result.total_questions);
       setMessages((current) => [...current, { role: 'assistant', content: result.ai_message }]);
-      speakText(result.ai_message);
+      if (result.live_metrics) {
+        setLiveMetrics(result.live_metrics);
+        setMetricsHistory((current) => [...current, result.live_metrics as LiveMetrics]);
+      }
+      void speakText(result.ai_message);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send message.');
     } finally {
@@ -1360,18 +1866,14 @@ export function StudentMockVivaPage(): JSX.Element {
   }
 
   async function endSession(): Promise<void> {
-    if (!sessionId) {
-      return;
-    }
+    if (!sessionId) return;
 
     setLoading(true);
 
     try {
-      const result = await apiRequest<Record<string, unknown>>('/coaching/end', {
+      const result = await apiRequest<SessionSummary>('/coaching/end', {
         method: 'POST',
-        body: {
-          session_id: sessionId,
-        },
+        body: { session_id: sessionId },
       });
       window.speechSynthesis.cancel();
       setSummary(result);
@@ -1383,53 +1885,261 @@ export function StudentMockVivaPage(): JSX.Element {
     }
   }
 
+  const modeLabel = COACHING_MODE_LABELS[selectedMode];
+
   return (
     <section className="mock-viva-page">
       <header className="mock-viva-header">
-        <h2>Mock Viva</h2>
-        <p>
-          Question {Math.max(questionIndex, 1)} / {totalQuestions}
-        </p>
+        <h2>{sessionId ? modeLabel : 'AI Coaching'}</h2>
+        {sessionId ? (
+          <p>
+            Question {Math.max(questionIndex, 1)} / {totalQuestions} &nbsp;·&nbsp;
+            <span style={{ color: 'var(--primary)', fontWeight: 600 }}>{modeLabel}</span>
+          </p>
+        ) : (
+          <p>Choose a mode and start an AI-powered coaching session based on your thesis.</p>
+        )}
       </header>
 
+      {/* Mode selector — only visible before session starts */}
+      {!sessionId && !summary ? (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+            gap: '0.75rem',
+            marginBottom: '1rem',
+          }}
+        >
+          {(Object.keys(COACHING_MODE_LABELS) as CoachingMode[]).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setSelectedMode(mode)}
+              style={{
+                border: `2px solid ${selectedMode === mode ? 'var(--primary)' : 'var(--border)'}`,
+                borderRadius: '12px',
+                padding: '1rem',
+                background: selectedMode === mode ? 'rgba(14,124,102,0.07)' : 'white',
+                textAlign: 'left',
+                cursor: 'pointer',
+                transition: 'all 0.15s',
+              }}
+            >
+              <div
+                style={{
+                  fontWeight: 700,
+                  color: selectedMode === mode ? 'var(--primary)' : 'var(--text)',
+                  marginBottom: '0.25rem',
+                }}
+              >
+                {COACHING_MODE_LABELS[mode]}
+              </div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                {COACHING_MODE_DESCRIPTIONS[mode]}
+              </div>
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {!sessionId && !summary ? (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+            gap: '0.75rem',
+            marginBottom: '1rem',
+          }}
+        >
+          {(Object.keys(LEARNER_PROFILE_LABELS) as LearnerProfile[]).map((profile) => (
+            <button
+              key={profile}
+              type="button"
+              onClick={() => setSelectedProfile(profile)}
+              style={{
+                border: `2px solid ${selectedProfile === profile ? 'var(--primary)' : 'var(--border)'}`,
+                borderRadius: '12px',
+                padding: '0.85rem',
+                background: selectedProfile === profile ? 'rgba(14,124,102,0.07)' : 'white',
+                textAlign: 'left',
+                cursor: 'pointer',
+              }}
+            >
+              <div
+                style={{
+                  fontWeight: 700,
+                  color: selectedProfile === profile ? 'var(--primary)' : 'var(--text)',
+                  marginBottom: '0.2rem',
+                }}
+              >
+                {LEARNER_PROFILE_LABELS[profile]}
+              </div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.35 }}>
+                {LEARNER_PROFILE_DESCRIPTIONS[profile]}
+              </div>
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {/* Voice / TTS controls */}
       <div className="mock-viva-voice-controls">
         <label>
           <input
             type="checkbox"
             checked={voiceOutputEnabled}
-            onChange={(event) => setVoiceOutputEnabled(event.target.checked)}
-            disabled={!supportsSpeechSynthesis}
+            onChange={(e) => setVoiceOutputEnabled(e.target.checked)}
           />
-          Examiner voice (TTS)
+          AI voice output
         </label>
         <label>
           <input
             type="checkbox"
             checked={voiceInputEnabled}
-            onChange={(event) => setVoiceInputEnabled(event.target.checked)}
-            disabled={!supportsSpeechRecognition}
+            onChange={(e) => setVoiceInputEnabled(e.target.checked)}
+            disabled={!supportsSpeechRecognition && !supportsMediaRecorder}
           />
-          Voice input (STT)
+          Voice input
         </label>
+        {voiceInputEnabled ? (
+          <label>
+            <input
+              type="checkbox"
+              checked={useAzureVoice}
+              onChange={(e) => setUseAzureVoice(e.target.checked)}
+            />
+            Use Azure AI voice
+          </label>
+        ) : null}
       </div>
 
       {error ? <p className="form-error">{error}</p> : null}
 
-      {!sessionId ? (
+      {!sessionId && !summary ? (
         <button
           type="button"
           className="btn btn-primary"
           onClick={() => void startSession()}
           disabled={loading}
         >
-          {loading ? 'Starting...' : 'Start Session'}
+          {loading ? 'Preparing questions from your thesis...' : `Start ${modeLabel}`}
         </button>
+      ) : null}
+
+      {sessionId && liveMetrics ? (
+        <article className="placeholder-card" style={{ marginTop: '1rem' }}>
+          <h3 style={{ marginBottom: '0.5rem' }}>Live Coaching Analytics</h3>
+          <p style={{ marginBottom: '0.65rem', color: 'var(--text-secondary)' }}>
+            Turn {liveMetrics.turn} · Profile: {LEARNER_PROFILE_LABELS[selectedProfile]} · Trend{' '}
+            {TREND_ICONS[liveMetrics.trend]} {liveMetrics.trend}
+          </p>
+
+          <div
+            style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '0.65rem' }}
+          >
+            <span
+              style={{
+                border: `1px solid ${DIFFICULTY_COLORS[liveMetrics.difficulty]}`,
+                color: DIFFICULTY_COLORS[liveMetrics.difficulty],
+                borderRadius: '999px',
+                padding: '0.2rem 0.65rem',
+                fontSize: '0.78rem',
+                fontWeight: 700,
+                textTransform: 'uppercase',
+              }}
+            >
+              {liveMetrics.difficulty}
+            </span>
+            <span className="status-pill status-info">Sentiment: {liveMetrics.sentiment}</span>
+            <span className="status-pill status-success">
+              Confidence: {liveMetrics.confidence}%
+            </span>
+          </div>
+
+          <div
+            style={{
+              height: '8px',
+              background: 'var(--border)',
+              borderRadius: '999px',
+              overflow: 'hidden',
+              marginBottom: '0.65rem',
+            }}
+          >
+            <div
+              style={{
+                width: `${Math.max(0, Math.min(100, liveMetrics.confidence))}%`,
+                height: '100%',
+                background:
+                  liveMetrics.confidence >= 70
+                    ? '#16a34a'
+                    : liveMetrics.confidence >= 40
+                      ? '#d97706'
+                      : '#dc2626',
+              }}
+            />
+          </div>
+
+          <p
+            style={{ marginBottom: '0.75rem', fontSize: '0.84rem', color: 'var(--text-secondary)' }}
+          >
+            {adaptationMessage(liveMetrics)}
+          </p>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+              gap: '0.5rem',
+              marginBottom: '0.6rem',
+            }}
+          >
+            {(Object.keys(SCORE_LABELS) as Array<keyof TurnScores>).map((scoreKey) => (
+              <div key={scoreKey} className="metric-card" style={{ padding: '0.6rem' }}>
+                <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                  {SCORE_LABELS[scoreKey]}
+                </p>
+                <p style={{ margin: '0.15rem 0 0', fontWeight: 800 }}>
+                  {liveMetrics.scores[scoreKey]}%
+                </p>
+              </div>
+            ))}
+          </div>
+
+          {liveMetrics.hesitation_signals.length > 0 ? (
+            <p style={{ marginBottom: 0, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+              Signals: {liveMetrics.hesitation_signals.join(', ')}
+            </p>
+          ) : null}
+
+          {metricsHistory.length > 1 ? (
+            <p
+              style={{
+                marginTop: '0.55rem',
+                marginBottom: 0,
+                fontSize: '0.78rem',
+                color: 'var(--text-secondary)',
+              }}
+            >
+              Session confidence trend:{' '}
+              {metricsHistory.map((entry) => entry.confidence).join(' → ')}
+            </p>
+          ) : null}
+        </article>
       ) : null}
 
       <div className="mock-viva-chat">
         {messages.map((message, index) => (
           <div key={`${message.role}-${index}`} className={`chat-bubble ${message.role}`}>
-            <strong>{message.role === 'assistant' ? 'Examiner' : 'You'}</strong>
+            <strong>
+              {message.role === 'assistant'
+                ? selectedMode === 'mock_viva'
+                  ? 'Examiner'
+                  : selectedMode === 'argument_defender'
+                    ? 'Reviewer'
+                    : 'Coach'
+                : 'You'}
+            </strong>
             <p>{message.content}</p>
           </div>
         ))}
@@ -1440,18 +2150,21 @@ export function StudentMockVivaPage(): JSX.Element {
           <textarea
             rows={3}
             value={input}
-            onChange={(event) => setInput(event.target.value)}
+            onChange={(e) => setInput(e.target.value)}
             placeholder="Type your answer..."
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void sendMessage();
+            }}
           />
           <div>
             {voiceInputEnabled ? (
               <button
                 type="button"
-                className="btn btn-ghost"
+                className={`btn ${isListening ? 'btn-primary' : 'btn-ghost'}`}
                 onClick={toggleListening}
                 disabled={loading}
               >
-                {isListening ? 'Stop Mic' : 'Use Mic'}
+                {isListening ? '⏹ Stop Recording' : '🎙 Use Mic'}
               </button>
             ) : null}
             <button
@@ -1476,20 +2189,91 @@ export function StudentMockVivaPage(): JSX.Element {
 
       {summary ? (
         <article className="placeholder-card viva-summary-card">
-          <h3>Session Summary</h3>
+          <h3>Session Summary — {modeLabel}</h3>
+          {summary.learner_profile ? (
+            <p style={{ marginBottom: '0.4rem', color: 'var(--text-secondary)' }}>
+              Learner Profile: {LEARNER_PROFILE_LABELS[summary.learner_profile]}
+            </p>
+          ) : null}
           <p>
-            Confidence Score:{' '}
+            Readiness Score:{' '}
             <strong>
               {typeof summary.readiness_score === 'number' ? `${summary.readiness_score}%` : 'N/A'}
             </strong>
           </p>
           <p>
-            Weak Topics:{' '}
-            {Array.isArray(summary.weak_topics)
-              ? (summary.weak_topics as string[]).join(', ')
-              : 'N/A'}
+            Weak Areas:{' '}
+            {Array.isArray(summary.weak_topics) ? summary.weak_topics.join(', ') : 'N/A'}
           </p>
           <p>{typeof summary.recommendation === 'string' ? summary.recommendation : ''}</p>
+          {typeof summary.turns_completed === 'number' ? (
+            <p style={{ marginTop: '0.25rem', marginBottom: '0.3rem', fontSize: '0.85rem' }}>
+              Turns Completed: <strong>{summary.turns_completed}</strong>
+            </p>
+          ) : null}
+          {typeof summary.progress_delta === 'number' ? (
+            <p style={{ marginTop: '0.25rem', marginBottom: '0.7rem', fontSize: '0.85rem' }}>
+              Progress Delta:{' '}
+              <strong style={{ color: summary.progress_delta >= 0 ? '#16a34a' : '#dc2626' }}>
+                {summary.progress_delta >= 0 ? '+' : ''}
+                {summary.progress_delta}
+              </strong>
+            </p>
+          ) : null}
+
+          {summary.dimension_summary?.averages ? (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+                gap: '0.55rem',
+                marginBottom: '0.75rem',
+              }}
+            >
+              {(Object.keys(SCORE_LABELS) as Array<keyof TurnScores>).map((scoreKey) => (
+                <div
+                  key={`summary-${scoreKey}`}
+                  className="metric-card"
+                  style={{ padding: '0.6rem' }}
+                >
+                  <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                    Avg {SCORE_LABELS[scoreKey]}
+                  </p>
+                  <p style={{ margin: '0.1rem 0 0', fontWeight: 800 }}>
+                    {summary.dimension_summary?.averages[scoreKey] ?? 0}%
+                  </p>
+                  <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                    Δ {summary.dimension_summary?.deltas[scoreKey] ?? 0}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          {summary.dimension_summary ? (
+            <p style={{ marginTop: '0.25rem', marginBottom: '0.65rem', fontSize: '0.84rem' }}>
+              Best improved:{' '}
+              <strong>{SCORE_LABELS[summary.dimension_summary.best_improved]}</strong>
+              {' · '}
+              Weakest persistent:{' '}
+              <strong>{SCORE_LABELS[summary.dimension_summary.weakest_persistent]}</strong>
+            </p>
+          ) : null}
+
+          <button
+            type="button"
+            className="btn btn-primary"
+            style={{ marginTop: '1rem' }}
+            onClick={() => {
+              setSummary(null);
+              setMessages([]);
+              setQuestionIndex(0);
+              setLiveMetrics(null);
+              setMetricsHistory([]);
+            }}
+          >
+            Start New Session
+          </button>
         </article>
       ) : null}
     </section>

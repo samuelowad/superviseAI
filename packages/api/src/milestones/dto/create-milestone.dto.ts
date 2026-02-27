@@ -1,6 +1,9 @@
-import { IsDateString, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsDateString, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
 
 export class CreateMilestoneDto {
+  @IsUUID()
+  cohort_id!: string;
+
   @IsString()
   @MinLength(3)
   @MaxLength(180)

@@ -9,6 +9,7 @@ import {
 } from 'react';
 
 import { apiRequest } from '../lib/api';
+import { connectRealtime, disconnectRealtime } from '../lib/socket';
 import {
   clearAuthStorage,
   getAccessToken,
@@ -52,6 +53,7 @@ export function AuthProvider({ children }: PropsWithChildren): JSX.Element {
     const bootstrap = async (): Promise<void> => {
       const token = getAccessToken();
       if (!token) {
+        disconnectRealtime();
         if (mounted) {
           setInitializing(false);
         }
@@ -66,7 +68,9 @@ export function AuthProvider({ children }: PropsWithChildren): JSX.Element {
 
         setUser(data.user);
         setStoredUser(data.user);
+        connectRealtime(token);
       } catch {
+        disconnectRealtime();
         clearAuthStorage();
         if (mounted) {
           setUser(null);
@@ -82,6 +86,7 @@ export function AuthProvider({ children }: PropsWithChildren): JSX.Element {
 
     return () => {
       mounted = false;
+      disconnectRealtime();
     };
   }, []);
 
@@ -94,6 +99,7 @@ export function AuthProvider({ children }: PropsWithChildren): JSX.Element {
     setAccessToken(data.access_token);
     setStoredUser(data.user);
     setUser(data.user);
+    connectRealtime(data.access_token);
 
     return data.user;
   }, []);
@@ -107,11 +113,13 @@ export function AuthProvider({ children }: PropsWithChildren): JSX.Element {
     setAccessToken(data.access_token);
     setStoredUser(data.user);
     setUser(data.user);
+    connectRealtime(data.access_token);
 
     return data.user;
   }, []);
 
   const logout = useCallback(() => {
+    disconnectRealtime();
     clearAuthStorage();
     setUser(null);
   }, []);
