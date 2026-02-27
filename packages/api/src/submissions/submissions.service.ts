@@ -644,13 +644,14 @@ export class SubmissionsService {
       formattingErrors = ['Could not confidently detect standard citation formatting cues.'];
     }
 
-    // Layer 3: Semantic Scholar existence check (on a sample of reference lines)
+    // Layer 3: citation existence check (CrossRef + OpenAlex)
+    this.logger.log(`[Citation] referenceLines extracted: ${referenceLines.length}`);
     const toVerify = referenceLines.slice(0, 10);
     if (toVerify.length > 0) {
       try {
         const { unverified } = await this.semanticScholar.checkCitationsExist(toVerify);
         if (unverified.length > 0) {
-          const summary = `${unverified.length} citation(s) could not be verified in Semantic Scholar.`;
+          const summary = `${unverified.length} citation(s) could not be verified in academic databases.`;
           missingCitations.push(summary);
         }
       } catch (err) {
@@ -674,11 +675,11 @@ export class SubmissionsService {
    * Extract individual reference/bibliography lines for citation validation.
    */
   private extractReferenceLines(text: string): string[] {
-    const refSectionMatch = /(?:references|bibliography)\s*\n([\s\S]{0,8000})/i.exec(text);
+    const refSectionMatch = /\b(?:references|bibliography)\b([\s\S]{0,8000})/i.exec(text);
     if (!refSectionMatch) return [];
 
     return refSectionMatch[1]
-      .split('\n')
+      .split(/\r?\n/)
       .map((line) => line.trim())
       .filter((line) => line.length > 20)
       .slice(0, 50);

@@ -470,8 +470,18 @@ Return ONLY valid JSON with integer scores 0-100 for each dimension:
 
     if (!raw) return { formatting_errors: [] };
     try {
-      const result = JSON.parse(this.cleanJson(raw)) as { formatting_errors?: string[] };
-      return { formatting_errors: result.formatting_errors ?? [] };
+      const result = JSON.parse(this.cleanJson(raw)) as { formatting_errors?: unknown[] };
+      const rawErrors = result.formatting_errors ?? [];
+      const formatting_errors = rawErrors.map((e) => {
+        if (typeof e === 'string') return e;
+        if (e && typeof e === 'object') {
+          const obj = e as Record<string, unknown>;
+          if (obj.issue && obj.description) return `${obj.issue}: ${obj.description}`;
+          return JSON.stringify(e);
+        }
+        return String(e);
+      });
+      return { formatting_errors };
     } catch {
       return { formatting_errors: [] };
     }

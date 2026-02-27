@@ -807,6 +807,18 @@ function CentralPanel({ workspace }: { workspace: WorkspaceResponse }): JSX.Elem
   );
 }
 
+function citationItemToString(item: unknown): string {
+  if (typeof item === 'string') return item;
+  if (item && typeof item === 'object') {
+    const obj = item as Record<string, unknown>;
+    if (obj.issue && obj.description) return `${obj.issue}: ${obj.description}`;
+    if (obj.issue) return String(obj.issue);
+    if (obj.description) return String(obj.description);
+    return JSON.stringify(item);
+  }
+  return String(item);
+}
+
 function RightPanel({ workspace }: { workspace: WorkspaceResponse }): JSX.Element {
   const plagRisk = workspace.right_panel.plagiarism.risk_level;
   const citIssueCount =
@@ -879,9 +891,10 @@ function RightPanel({ workspace }: { workspace: WorkspaceResponse }): JSX.Elemen
             <>
               <p style={{ fontWeight: 600 }}>Missing citations:</p>
               <ul>
-                {workspace.right_panel.citations.missing_citations.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
+                {workspace.right_panel.citations.missing_citations.map((item, i) => {
+                  const text = citationItemToString(item);
+                  return <li key={i}>{text}</li>;
+                })}
               </ul>
             </>
           ) : null}
@@ -889,9 +902,10 @@ function RightPanel({ workspace }: { workspace: WorkspaceResponse }): JSX.Elemen
             <>
               <p style={{ fontWeight: 600 }}>Broken references:</p>
               <ul>
-                {workspace.right_panel.citations.broken_references.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
+                {workspace.right_panel.citations.broken_references.map((item, i) => {
+                  const text = citationItemToString(item);
+                  return <li key={i}>{text}</li>;
+                })}
               </ul>
             </>
           ) : null}
@@ -899,9 +913,10 @@ function RightPanel({ workspace }: { workspace: WorkspaceResponse }): JSX.Elemen
             <>
               <p style={{ fontWeight: 600 }}>Formatting errors:</p>
               <ul>
-                {workspace.right_panel.citations.formatting_errors.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
+                {workspace.right_panel.citations.formatting_errors.map((item, i) => {
+                  const text = citationItemToString(item);
+                  return <li key={i}>{text}</li>;
+                })}
               </ul>
             </>
           ) : null}
