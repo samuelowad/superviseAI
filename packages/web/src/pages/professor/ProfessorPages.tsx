@@ -2340,71 +2340,155 @@ export function ProfessorStudentDetailPage({ thesisId }: { thesisId: string }): 
         </article>
       </section>
 
-      <section className="placeholder-card">
-        <h2>AI Review Summary</h2>
-        {detail.ai_review ? (
-          <>
-            <p style={{ marginBottom: '0.5rem' }}>
-              <strong>Status Note:</strong> {detail.ai_review.status_note}
-            </p>
-            {detail.ai_review.stage_context ? (
-              <p style={{ marginBottom: '0.5rem' }}>
-                <strong>Milestone Context:</strong> {detail.ai_review.stage_context}
-              </p>
+      {/* ---- AI Review / Suggested Feedback / Abstract Alignment — 3 columns ---- */}
+      <div className="review-columns">
+        {/* Column 1: AI Review Summary */}
+        <section className="placeholder-card review-col-card">
+          <div className="review-col-header">
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+              <polyline points="14 2 14 8 20 8" />
+              <line x1="16" x2="8" y1="13" y2="13" />
+              <line x1="16" x2="8" y1="17" y2="17" />
+              <line x1="10" x2="8" y1="9" y2="9" />
+            </svg>
+            <h2>AI Review Summary</h2>
+          </div>
+          {detail.ai_review ? (
+            <>
+              <div className="review-field">
+                <span className="review-field-label">Status</span>
+                <p>{detail.ai_review.status_note}</p>
+              </div>
+              {detail.ai_review.stage_context ? (
+                <div className="review-field">
+                  <span className="review-field-label">Milestone Context</span>
+                  <p>{detail.ai_review.stage_context}</p>
+                </div>
+              ) : null}
+              <div className="review-field">
+                <span className="review-field-label">Change Summary</span>
+                <p>{detail.ai_review.change_summary}</p>
+              </div>
+            </>
+          ) : (
+            <p className="review-empty">AI summary is unavailable for this submission.</p>
+          )}
+        </section>
+
+        {/* Column 2: Suggested Feedback */}
+        <section className="placeholder-card review-col-card">
+          <div className="review-col-header">
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            </svg>
+            <h2>Suggested Feedback</h2>
+            {detail.ai_review?.recommended_feedback.length ? (
+              <span className="summary-badge">{detail.ai_review.recommended_feedback.length}</span>
             ) : null}
-            <p style={{ marginBottom: '0.75rem' }}>{detail.ai_review.change_summary}</p>
-            <h3 style={{ marginBottom: '0.4rem' }}>Suggested Feedback</h3>
-            <ul style={{ marginTop: 0 }}>
+          </div>
+          {detail.ai_review?.recommended_feedback.length ? (
+            <ul className="review-feedback-list">
               {detail.ai_review.recommended_feedback.map((item, index) => (
-                <li key={`${index}-${item}`}>
-                  {item}{' '}
+                <li key={`${index}-${item}`} className="review-feedback-item">
+                  <p>{item}</p>
                   <button
                     type="button"
-                    className="btn btn-ghost"
-                    style={{ marginLeft: '0.5rem' }}
+                    className="btn btn-ghost review-use-btn"
                     onClick={() =>
                       setFeedback((prev) =>
                         prev.trim().length ? `${prev}\n- ${item}` : `- ${item}`,
                       )
                     }
                   >
-                    Use
+                    + Use
                   </button>
                 </li>
               ))}
             </ul>
-          </>
-        ) : (
-          <p>AI summary is unavailable for this submission.</p>
-        )}
+          ) : (
+            <p className="review-empty">No suggestions available.</p>
+          )}
+        </section>
 
-        <h3 style={{ marginTop: '1rem', marginBottom: '0.4rem' }}>Abstract Alignment</h3>
-        <p>
-          <strong>Verdict:</strong>{' '}
-          <span className="status-pill info">
-            {detail.abstract_alignment.verdict.replace(/_/g, ' ')}
-          </span>
-        </p>
-        <p>
-          <strong>Structural Readiness:</strong> {detail.abstract_alignment.structural_readiness}
-        </p>
-        {detail.abstract_alignment.key_topic_coverage.length > 0 ? (
-          <p>
-            <strong>Covered Topics:</strong>{' '}
-            {detail.abstract_alignment.key_topic_coverage.join(', ')}
-          </p>
-        ) : null}
-        {detail.abstract_alignment.missing_core_sections.length > 0 ? (
-          <p>
-            <strong>Missing Core Sections:</strong>{' '}
-            {detail.abstract_alignment.missing_core_sections.join(', ')}
-          </p>
-        ) : (
-          <p>
-            <strong>Missing Core Sections:</strong> none detected
-          </p>
-        )}
-      </section>
+        {/* Column 3: Abstract Alignment */}
+        <section className="placeholder-card review-col-card">
+          <div className="review-col-header">
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <path d="m9 12 2 2 4-4" />
+            </svg>
+            <h2>Abstract Alignment</h2>
+          </div>
+          <div className="review-field">
+            <span className="review-field-label">Verdict</span>
+            <span
+              className={`status-pill ${detail.abstract_alignment.verdict === 'aligned' ? 'status-success' : detail.abstract_alignment.verdict === 'misaligned' ? 'status-danger' : 'status-info'}`}
+            >
+              {detail.abstract_alignment.verdict.replace(/_/g, ' ')}
+            </span>
+          </div>
+          <div className="review-field">
+            <span className="review-field-label">Structural Readiness</span>
+            <p>{detail.abstract_alignment.structural_readiness}</p>
+          </div>
+          {detail.abstract_alignment.key_topic_coverage.length > 0 ? (
+            <div className="review-field">
+              <span className="review-field-label">Covered Topics</span>
+              <div className="review-tag-list">
+                {detail.abstract_alignment.key_topic_coverage.map((topic) => (
+                  <span key={topic} className="review-tag review-tag-green">
+                    {topic}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          <div className="review-field">
+            <span className="review-field-label">Missing Sections</span>
+            {detail.abstract_alignment.missing_core_sections.length > 0 ? (
+              <div className="review-tag-list">
+                {detail.abstract_alignment.missing_core_sections.map((section) => (
+                  <span key={section} className="review-tag review-tag-red">
+                    {section}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p style={{ color: 'var(--success)', fontWeight: 600, fontSize: '0.88rem' }}>
+                None detected
+              </p>
+            )}
+          </div>
+        </section>
+      </div>
 
       <section className="placeholder-card">
         <h2>Professor Feedback</h2>
