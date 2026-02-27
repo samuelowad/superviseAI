@@ -138,6 +138,13 @@ interface CreateThesisInput {
   supervisorId?: string;
 }
 
+interface ParsedAbstractResponse {
+  text: string;
+  file_name: string;
+  truncated: boolean;
+  original_length: number;
+}
+
 interface SpeechRecognitionLike {
   continuous: boolean;
   interimResults: boolean;
@@ -572,7 +579,7 @@ function CentralPanel({ workspace }: { workspace: WorkspaceResponse }): JSX.Elem
             Verdict:{' '}
             <span
               className={`status-pill ${
-                workspace.central_panel.abstract_alignment?.verdict === 'aligned'
+                workspace.central_panel.abstract_alignment?.verdict === 'on_track'
                   ? 'success'
                   : workspace.central_panel.abstract_alignment?.verdict === 'partially_aligned'
                     ? 'warning'
@@ -624,10 +631,9 @@ function CentralPanel({ workspace }: { workspace: WorkspaceResponse }): JSX.Elem
             Structural readiness:{' '}
             <span
               className={`status-pill ${
-                workspace.central_panel.abstract_alignment?.structural_readiness === 'ready'
+                workspace.central_panel.abstract_alignment?.structural_readiness === 'strong'
                   ? 'success'
-                  : workspace.central_panel.abstract_alignment?.structural_readiness ===
-                      'developing'
+                  : workspace.central_panel.abstract_alignment?.structural_readiness === 'moderate'
                     ? 'warning'
                     : 'info'
               }`}
@@ -638,6 +644,74 @@ function CentralPanel({ workspace }: { workspace: WorkspaceResponse }): JSX.Elem
         </>
       ) : (
         <>
+          <h3>Abstract Alignment Analysis</h3>
+          <p style={{ marginBottom: '0.75rem' }}>
+            Verdict:{' '}
+            <span
+              className={`status-pill ${
+                workspace.central_panel.abstract_alignment?.verdict === 'on_track'
+                  ? 'success'
+                  : workspace.central_panel.abstract_alignment?.verdict === 'partially_aligned'
+                    ? 'warning'
+                    : 'info'
+              }`}
+            >
+              {(workspace.central_panel.abstract_alignment?.verdict ?? 'insufficient data').replace(
+                /_/g,
+                ' ',
+              )}
+            </span>
+          </p>
+          <div className="grid-two-columns">
+            <div>
+              <h4>Key Topic Coverage</h4>
+              {(workspace.central_panel.abstract_alignment?.key_topic_coverage ?? []).length > 0 ? (
+                <ul>
+                  {(workspace.central_panel.abstract_alignment?.key_topic_coverage ?? []).map(
+                    (item) => (
+                      <li key={item}>{item}</li>
+                    ),
+                  )}
+                </ul>
+              ) : (
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                  No topics identified yet.
+                </p>
+              )}
+            </div>
+            <div>
+              <h4>Missing Core Sections</h4>
+              {(workspace.central_panel.abstract_alignment?.missing_core_sections ?? []).length >
+              0 ? (
+                <ul>
+                  {(workspace.central_panel.abstract_alignment?.missing_core_sections ?? []).map(
+                    (item) => (
+                      <li key={item}>{item}</li>
+                    ),
+                  )}
+                </ul>
+              ) : (
+                <p style={{ fontSize: '0.85rem', color: 'var(--success)' }}>
+                  No missing sections detected.
+                </p>
+              )}
+            </div>
+          </div>
+          <p>
+            Structural readiness:{' '}
+            <span
+              className={`status-pill ${
+                workspace.central_panel.abstract_alignment?.structural_readiness === 'strong'
+                  ? 'success'
+                  : workspace.central_panel.abstract_alignment?.structural_readiness === 'moderate'
+                    ? 'warning'
+                    : 'info'
+              }`}
+            >
+              {workspace.central_panel.abstract_alignment?.structural_readiness ?? 'developing'}
+            </span>
+          </p>
+
           <h3>Version Comparison</h3>
           <div className="comparison-summary-grid">
             <div>
@@ -807,6 +881,18 @@ function CentralPanel({ workspace }: { workspace: WorkspaceResponse }): JSX.Elem
   );
 }
 
+function citationItemToString(item: unknown): string {
+  if (typeof item === 'string') return item;
+  if (item && typeof item === 'object') {
+    const obj = item as Record<string, unknown>;
+    if (obj.issue && obj.description) return `${obj.issue}: ${obj.description}`;
+    if (obj.issue) return String(obj.issue);
+    if (obj.description) return String(obj.description);
+    return JSON.stringify(item);
+  }
+  return String(item);
+}
+
 function RightPanel({ workspace }: { workspace: WorkspaceResponse }): JSX.Element {
   const plagRisk = workspace.right_panel.plagiarism.risk_level;
   const citIssueCount =
@@ -879,9 +965,10 @@ function RightPanel({ workspace }: { workspace: WorkspaceResponse }): JSX.Elemen
             <>
               <p style={{ fontWeight: 600 }}>Missing citations:</p>
               <ul>
-                {workspace.right_panel.citations.missing_citations.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
+                {workspace.right_panel.citations.missing_citations.map((item, i) => {
+                  const text = citationItemToString(item);
+                  return <li key={i}>{text}</li>;
+                })}
               </ul>
             </>
           ) : null}
@@ -889,9 +976,10 @@ function RightPanel({ workspace }: { workspace: WorkspaceResponse }): JSX.Elemen
             <>
               <p style={{ fontWeight: 600 }}>Broken references:</p>
               <ul>
-                {workspace.right_panel.citations.broken_references.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
+                {workspace.right_panel.citations.broken_references.map((item, i) => {
+                  const text = citationItemToString(item);
+                  return <li key={i}>{text}</li>;
+                })}
               </ul>
             </>
           ) : null}
@@ -899,9 +987,10 @@ function RightPanel({ workspace }: { workspace: WorkspaceResponse }): JSX.Elemen
             <>
               <p style={{ fontWeight: 600 }}>Formatting errors:</p>
               <ul>
-                {workspace.right_panel.citations.formatting_errors.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
+                {workspace.right_panel.citations.formatting_errors.map((item, i) => {
+                  const text = citationItemToString(item);
+                  return <li key={i}>{text}</li>;
+                })}
               </ul>
             </>
           ) : null}
@@ -1003,22 +1092,57 @@ function ProposalForm({
   }, [supervisorId, supervisorQuery]);
 
   async function readAbstractFile(file: File): Promise<void> {
-    if (file.size > 2 * 1024 * 1024) {
-      setError('Abstract file must be 2MB or less.');
+    if (file.size > 20 * 1024 * 1024) {
+      setError('Abstract/proposal file must be 20MB or less.');
       return;
     }
 
-    const rawText = await file.text();
-    const cleanedText = rawText.replace(/\s+/g, ' ').trim();
-    if (cleanedText.length < 40) {
-      setError('Uploaded abstract content is too short. Use at least 40 characters.');
+    const token = getAccessToken();
+    if (!token) {
+      setError('Please sign in again and retry.');
       return;
     }
 
-    setAbstractValue(cleanedText.slice(0, 4000));
-    setAbstractFileName(file.name);
-    setAbstractSource('upload');
-    setError(null);
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const response = await fetch(`${API_BASE}/theses/abstract/parse`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
+      });
+
+      let payload: ParsedAbstractResponse | { message?: string } = { message: '' };
+      try {
+        payload = (await response.json()) as ParsedAbstractResponse | { message?: string };
+      } catch {
+        payload = { message: 'Failed to parse uploaded file.' };
+      }
+
+      if (!response.ok) {
+        const msg =
+          typeof payload === 'object' && payload && 'message' in payload
+            ? (payload.message ?? 'Failed to parse file.')
+            : 'Failed to parse file.';
+        setError(msg);
+        return;
+      }
+
+      const parsed = payload as ParsedAbstractResponse;
+      setAbstractValue(parsed.text);
+      setAbstractFileName(
+        parsed.truncated
+          ? `${parsed.file_name || file.name} (truncated to 30,000 chars)`
+          : parsed.file_name || file.name,
+      );
+      setAbstractSource('upload');
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to parse uploaded file.');
+    }
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
@@ -1086,7 +1210,7 @@ function ProposalForm({
             <div className="abstract-upload-field">
               <input
                 type="file"
-                accept=".txt,.md,text/plain,text/markdown"
+                accept=".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown"
                 onChange={(event) => {
                   const selected = event.target.files?.[0];
                   if (selected) {
@@ -1095,7 +1219,9 @@ function ProposalForm({
                 }}
               />
               <small>
-                {abstractFileName ? `Loaded: ${abstractFileName}` : 'Accepted: .txt, .md'}
+                {abstractFileName
+                  ? `Loaded: ${abstractFileName}`
+                  : 'Accepted: .pdf, .docx, .txt, .md (up to 20MB)'}
               </small>
             </div>
           )}
@@ -1788,6 +1914,65 @@ interface SessionSummary {
   turns_completed?: number;
 }
 
+function writeAscii(view: DataView, offset: number, text: string): void {
+  for (let index = 0; index < text.length; index += 1) {
+    view.setUint8(offset + index, text.charCodeAt(index));
+  }
+}
+
+function encodePcmWav(samples: Float32Array, sampleRate: number): Blob {
+  const bytesPerSample = 2;
+  const blockAlign = bytesPerSample;
+  const byteRate = sampleRate * blockAlign;
+  const dataSize = samples.length * bytesPerSample;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+
+  writeAscii(view, 0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  writeAscii(view, 8, 'WAVE');
+  writeAscii(view, 12, 'fmt ');
+  view.setUint32(16, 16, true); // PCM chunk size
+  view.setUint16(20, 1, true); // format = PCM
+  view.setUint16(22, 1, true); // mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, 16, true); // bits per sample
+  writeAscii(view, 36, 'data');
+  view.setUint32(40, dataSize, true);
+
+  let offset = 44;
+  for (let i = 0; i < samples.length; i += 1) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    offset += 2;
+  }
+
+  return new Blob([buffer], { type: 'audio/wav' });
+}
+
+async function convertBlobToPcmWav(blob: Blob, targetRate = 16000): Promise<Blob> {
+  const arrayBuffer = await blob.arrayBuffer();
+  const audioContext = new AudioContext();
+  try {
+    const decoded = await audioContext.decodeAudioData(arrayBuffer.slice(0));
+    const frameCount = Math.max(1, Math.ceil(decoded.duration * targetRate));
+    const offline = new OfflineAudioContext(1, frameCount, targetRate);
+    const source = offline.createBufferSource();
+    source.buffer = decoded;
+    source.connect(offline.destination);
+    source.start(0);
+    const rendered = await offline.startRendering();
+    const channelData = rendered.getChannelData(0);
+    const samples = new Float32Array(channelData.length);
+    samples.set(channelData);
+    return encodePcmWav(samples, targetRate);
+  } finally {
+    await audioContext.close();
+  }
+}
+
 const COACHING_MODE_LABELS: Record<CoachingMode, string> = {
   mock_viva: 'Mock Viva',
   argument_defender: 'Argument Defender',
@@ -1934,8 +2119,8 @@ export function StudentMockVivaPage(): JSX.Element {
     // Try Azure TTS first
     if (useAzureVoice) {
       try {
-        const token = localStorage.getItem('auth_token') ?? '';
-        const resp = await fetch('/api/v1/coaching/tts', {
+        const token = getAccessToken() ?? '';
+        const resp = await fetch(`${API_BASE}/coaching/tts`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -1980,7 +2165,14 @@ export function StudentMockVivaPage(): JSX.Element {
       void navigator.mediaDevices
         .getUserMedia({ audio: true })
         .then((stream) => {
-          const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+          const preferredTypes = ['audio/ogg;codecs=opus', 'audio/webm;codecs=opus', 'audio/webm'];
+          const selectedMimeType = preferredTypes.find((type) =>
+            MediaRecorder.isTypeSupported(type),
+          );
+
+          const recorder = selectedMimeType
+            ? new MediaRecorder(stream, { mimeType: selectedMimeType })
+            : new MediaRecorder(stream);
           audioChunksRef.current = [];
           recorder.ondataavailable = (e) => {
             if (e.data.size > 0) audioChunksRef.current.push(e.data);
@@ -1991,11 +2183,22 @@ export function StudentMockVivaPage(): JSX.Element {
               if (!sessionId || audioChunksRef.current.length === 0) return;
               setLoading(true);
               try {
-                const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+                const recordedMimeType = selectedMimeType || recorder.mimeType || 'audio/webm';
+                const extension = recordedMimeType.includes('ogg') ? 'ogg' : 'webm';
+                const rawBlob = new Blob(audioChunksRef.current, { type: recordedMimeType });
+                let uploadBlob = rawBlob;
+                let uploadFilename = `recording.${extension}`;
+
+                try {
+                  uploadBlob = await convertBlobToPcmWav(rawBlob, 16000);
+                  uploadFilename = 'recording.wav';
+                } catch {
+                  // keep original if conversion fails
+                }
                 const formData = new FormData();
-                formData.append('audio', blob, 'recording.webm');
-                const token = localStorage.getItem('auth_token') ?? '';
-                const resp = await fetch(`/api/v1/coaching/voice?session_id=${sessionId}`, {
+                formData.append('audio', uploadBlob, uploadFilename);
+                const token = getAccessToken() ?? '';
+                const resp = await fetch(`${API_BASE}/coaching/voice?session_id=${sessionId}`, {
                   method: 'POST',
                   headers: { Authorization: `Bearer ${token}` },
                   body: formData,

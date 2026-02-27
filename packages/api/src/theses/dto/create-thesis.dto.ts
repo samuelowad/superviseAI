@@ -8,7 +8,7 @@ export class CreateThesisDto {
 
   @IsString()
   @MinLength(40)
-  @MaxLength(4000)
+  @MaxLength(30000)
   abstract!: string;
 
   @IsOptional()

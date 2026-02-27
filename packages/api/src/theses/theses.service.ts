@@ -8,6 +8,7 @@ import { PlagiarismReport } from '../analysis/entities/plagiarism-report.entity'
 import { ThesisAnalysis } from '../analysis/entities/thesis-analysis.entity';
 import { CoachingSession } from '../coaching/entities/coaching-session.entity';
 import { CohortsService } from '../cohorts/cohorts.service';
+import { AzureOpenAiService } from '../integrations/azure/azure-openai.service';
 import { Milestone } from '../milestones/entities/milestone.entity';
 import { Submission, SubmissionStatus } from '../submissions/entities/submission.entity';
 import { User, UserRole } from '../users/user.entity';
@@ -37,6 +38,20 @@ interface ProfessorStudentSnapshot {
   risk: RiskAssessment;
 }
 
+interface ProfessorAiReviewSummary {
+  status_note: string;
+  change_summary: string;
+  recommended_feedback: string[];
+  stage_context: string | null;
+}
+
+interface UploadedProposalFile {
+  originalname: string;
+  mimetype: string;
+  size: number;
+  buffer: Buffer;
+}
+
 @Injectable()
 export class ThesesService {
   constructor(
@@ -57,6 +72,7 @@ export class ThesesService {
     @InjectRepository(Milestone)
     private readonly milestoneRepository: Repository<Milestone>,
     private readonly cohortsService: CohortsService,
+    private readonly azureOpenAi: AzureOpenAiService,
   ) {}
 
   async create(studentId: string, dto: CreateThesisDto): Promise<{ thesis: Thesis }> {
@@ -92,6 +108,32 @@ export class ThesesService {
     }
 
     return { thesis: savedThesis };
+  }
+
+  async parseAbstractFile(
+    file: UploadedProposalFile,
+  ): Promise<{ text: string; file_name: string; truncated: boolean; original_length: number }> {
+    this.validateAbstractFile(file);
+
+    const extracted = await this.extractAbstractText(file);
+    const normalized = extracted.replace(/\s+/g, ' ').trim();
+
+    if (normalized.length < 40) {
+      throw new BadRequestException(
+        'Uploaded file did not contain enough readable text for an abstract (minimum 40 characters).',
+      );
+    }
+
+    const max = 30000;
+    const truncated = normalized.length > max;
+    const text = truncated ? normalized.slice(0, max) : normalized;
+
+    return {
+      text,
+      file_name: file.originalname,
+      truncated,
+      original_length: normalized.length,
+    };
   }
 
   async searchProfessors(query: string): Promise<{ professors: Array<Record<string, string>> }> {
@@ -219,30 +261,31 @@ export class ThesesService {
       activeSubmission?.extractedText ?? '',
     );
 
-    const centralPanel = !showVersionComparison
-      ? {
-          mode: 'first_submission',
-          abstract_alignment: {
-            verdict: analysis?.abstractAlignmentVerdict ?? 'insufficient_data',
-            key_topic_coverage: analysis?.keyTopicCoverage ?? [],
-            missing_core_sections: analysis?.missingCoreSections ?? [],
-            structural_readiness: analysis?.structuralReadiness ?? 'developing',
-          },
-        }
-      : {
-          mode: 'version_comparison',
-          version_comparison: {
-            additions: analysis?.additionsCount ?? 0,
-            deletions: analysis?.deletionsCount ?? 0,
-            major_edits: analysis?.majorEditsCount ?? 0,
-            gaps_resolved: analysis?.gapsResolved ?? 0,
-            gaps_open: analysis?.gapsOpen ?? 0,
-            previous_excerpt: analysis?.previousExcerpt ?? '',
-            current_excerpt: analysis?.currentExcerpt ?? '',
-            pr_diff: prDiff,
-            pdf_view: pdfView,
-          },
-        };
+    const centralPanel = {
+      mode: showVersionComparison ? ('version_comparison' as const) : ('first_submission' as const),
+      // Always include abstract alignment so every new version is checked against proposal/abstract.
+      abstract_alignment: {
+        verdict: analysis?.abstractAlignmentVerdict ?? 'insufficient_data',
+        key_topic_coverage: analysis?.keyTopicCoverage ?? [],
+        missing_core_sections: analysis?.missingCoreSections ?? [],
+        structural_readiness: analysis?.structuralReadiness ?? 'developing',
+      },
+      ...(showVersionComparison
+        ? {
+            version_comparison: {
+              additions: analysis?.additionsCount ?? 0,
+              deletions: analysis?.deletionsCount ?? 0,
+              major_edits: analysis?.majorEditsCount ?? 0,
+              gaps_resolved: analysis?.gapsResolved ?? 0,
+              gaps_open: analysis?.gapsOpen ?? 0,
+              previous_excerpt: analysis?.previousExcerpt ?? '',
+              current_excerpt: analysis?.currentExcerpt ?? '',
+              pr_diff: prDiff,
+              pdf_view: pdfView,
+            },
+          }
+        : {}),
+    };
 
     return {
       thesis: {
@@ -325,8 +368,11 @@ export class ThesesService {
         student_email: snapshot.student?.email ?? null,
         progress_score: snapshot.latestAnalysis?.progressScore ?? 0,
         trend_delta: snapshot.latestAnalysis?.trendDelta ?? 0,
+        abstract_alignment_verdict:
+          snapshot.latestAnalysis?.abstractAlignmentVerdict ?? 'insufficient_data',
         plagiarism_similarity: snapshot.latestPlagiarism?.similarityPercent ?? 0,
         last_submission_at: snapshot.latestSubmission?.createdAt?.toISOString() ?? null,
+        ai_status_note: this.buildProfessorStatusNote(snapshot),
         risk_level: snapshot.risk.level,
         risk_reasons: snapshot.risk.reasons,
       }))
@@ -408,6 +454,7 @@ export class ThesesService {
         order: { createdAt: 'DESC' },
       }),
     ]);
+    const activeMilestone = await this.resolveActiveMilestoneForThesis(thesis);
 
     const analysisBySubmission = new Map(
       analysisRows.map((analysis) => [analysis.submissionId, analysis]),
@@ -532,6 +579,17 @@ export class ThesesService {
           }
         : null;
 
+    const aiReview = await this.buildProfessorAiReview({
+      thesis,
+      activeSubmission,
+      previousSubmission,
+      activeAnalysis,
+      activeCitation,
+      activePlagiarism,
+      activeMilestoneStage: activeMilestone?.stage ?? null,
+      comparison,
+    });
+
     return {
       student: {
         id: student?.id ?? thesis.studentId,
@@ -562,6 +620,12 @@ export class ThesesService {
         plagiarism_similarity: activePlagiarism?.similarityPercent ?? 0,
         readiness_score: latestSession?.readinessScore ?? null,
       },
+      abstract_alignment: {
+        verdict: activeAnalysis?.abstractAlignmentVerdict ?? 'insufficient_data',
+        key_topic_coverage: activeAnalysis?.keyTopicCoverage ?? [],
+        missing_core_sections: activeAnalysis?.missingCoreSections ?? [],
+        structural_readiness: activeAnalysis?.structuralReadiness ?? 'developing',
+      },
       reports: {
         citations: {
           issues_count: activeCitation?.issuesCount ?? 0,
@@ -580,6 +644,7 @@ export class ThesesService {
         timeline,
       },
       comparison,
+      ai_review: aiReview,
       submissions: submissions.map((submission) => ({
         id: submission.id,
         version_number: submission.versionNumber,
@@ -921,9 +986,176 @@ export class ThesesService {
     return { level: 'yellow', reasons };
   }
 
-  private async resolveActiveMilestoneForThesis(
-    thesis: Thesis,
-  ): Promise<{ id: string; title: string; dueDate: string; dueInDays: number } | null> {
+  private buildProfessorStatusNote(snapshot: ProfessorStudentSnapshot): string {
+    const progress = snapshot.latestAnalysis?.progressScore ?? 0;
+    const trend = snapshot.latestAnalysis?.trendDelta ?? 0;
+    const similarity = snapshot.latestPlagiarism?.similarityPercent ?? 0;
+    const alignment = snapshot.latestAnalysis?.abstractAlignmentVerdict ?? 'insufficient_data';
+
+    if (!snapshot.latestSubmission) {
+      return 'No submissions yet; waiting for first draft.';
+    }
+    if (similarity >= 45) {
+      return 'High similarity risk; investigate source overlap and citation quality.';
+    }
+    if (progress < 55) {
+      return 'Core thesis structure still weak; targeted revisions are needed.';
+    }
+    if (trend < 0) {
+      return 'Quality trend declined versus prior draft; review recent changes.';
+    }
+    if (alignment === 'needs_realignment') {
+      return 'Draft diverges from proposal; refocus argument and section coherence.';
+    }
+    if (progress >= 75 && similarity < 25) {
+      return 'Steady progress with manageable risk; focus on refinement.';
+    }
+    return 'Mixed signals; continue supervision with focused milestone feedback.';
+  }
+
+  private async buildProfessorAiReview(input: {
+    thesis: Thesis;
+    activeSubmission: Submission | null;
+    previousSubmission: Submission | null;
+    activeAnalysis: ThesisAnalysis | null;
+    activeCitation: CitationReport | null;
+    activePlagiarism: PlagiarismReport | null;
+    activeMilestoneStage: string | null;
+    comparison: {
+      additions: number;
+      deletions: number;
+      major_edits: number;
+    } | null;
+  }): Promise<ProfessorAiReviewSummary | null> {
+    if (!input.activeSubmission || !input.activeAnalysis) {
+      return null;
+    }
+
+    const fallback = this.buildProfessorAiReviewFallback(input);
+    if (!this.azureOpenAi.isAvailable()) {
+      return fallback;
+    }
+
+    const aiSummary = await this.azureOpenAi.summarizeProfessorReview({
+      thesisTitle: input.thesis.title,
+      abstract: input.thesis.abstract,
+      previousText: input.previousSubmission?.extractedText ?? null,
+      currentText: input.activeSubmission.extractedText ?? null,
+      milestoneStage: input.activeMilestoneStage,
+      progressScore: input.activeAnalysis.progressScore,
+      trendDelta: input.activeAnalysis.trendDelta,
+      citationHealthScore: input.activeCitation?.citationHealthScore ?? 0,
+      similarityPercent: input.activePlagiarism?.similarityPercent ?? 0,
+      additions: input.comparison?.additions ?? input.activeAnalysis.additionsCount,
+      deletions: input.comparison?.deletions ?? input.activeAnalysis.deletionsCount,
+      majorEdits: input.comparison?.major_edits ?? input.activeAnalysis.majorEditsCount,
+      abstractAlignmentVerdict: input.activeAnalysis.abstractAlignmentVerdict,
+      keyTopicCoverage: input.activeAnalysis.keyTopicCoverage ?? [],
+      missingCoreSections: input.activeAnalysis.missingCoreSections ?? [],
+    });
+
+    if (!aiSummary) {
+      return fallback;
+    }
+
+    return {
+      status_note: aiSummary.status_note,
+      change_summary: aiSummary.change_summary,
+      recommended_feedback: aiSummary.recommended_feedback,
+      stage_context: input.activeMilestoneStage,
+    };
+  }
+
+  private buildProfessorAiReviewFallback(input: {
+    activeAnalysis: ThesisAnalysis | null;
+    activeCitation: CitationReport | null;
+    activePlagiarism: PlagiarismReport | null;
+    activeMilestoneStage: string | null;
+    comparison: {
+      additions: number;
+      deletions: number;
+      major_edits: number;
+    } | null;
+  }): ProfessorAiReviewSummary {
+    const analysis = input.activeAnalysis;
+    const citation = input.activeCitation;
+    const plagiarism = input.activePlagiarism;
+
+    const progress = analysis?.progressScore ?? 0;
+    const trend = analysis?.trendDelta ?? 0;
+    const additions = input.comparison?.additions ?? analysis?.additionsCount ?? 0;
+    const deletions = input.comparison?.deletions ?? analysis?.deletionsCount ?? 0;
+    const majorEdits = input.comparison?.major_edits ?? analysis?.majorEditsCount ?? 0;
+    const missing = analysis?.missingCoreSections ?? [];
+    const coverage = analysis?.keyTopicCoverage ?? [];
+
+    const status_note =
+      progress >= 75
+        ? 'Strong progress; focus now on precision and defence readiness.'
+        : progress >= 55
+          ? 'Moderate progress; key structural and evidence gaps remain.'
+          : 'At-risk draft; major revision and tighter structure needed.';
+
+    const change_summary = [
+      `Revision profile: +${additions} additions, -${deletions} deletions, ${majorEdits} major edits.`,
+      `Progress is ${progress}% (${trend >= 0 ? '+' : ''}${trend} vs previous).`,
+      `Abstract alignment is "${analysis?.abstractAlignmentVerdict ?? 'insufficient_data'}".`,
+      coverage.length > 0
+        ? `Coverage improved in: ${coverage.slice(0, 3).join(', ')}.`
+        : 'Topic coverage remains limited in this draft.',
+      missing.length > 0
+        ? `Critical missing sections: ${missing.slice(0, 3).join(', ')}.`
+        : 'No critical missing core sections were detected.',
+      `Citation health is ${citation?.citationHealthScore ?? 0}% and similarity is ${plagiarism?.similarityPercent ?? 0}%.`,
+    ].join(' ');
+
+    const recommended_feedback: string[] = [];
+    if (input.activeMilestoneStage) {
+      recommended_feedback.push(
+        `For "${input.activeMilestoneStage}", tighten the draft around milestone-specific deliverables before next submission.`,
+      );
+    }
+    if (missing.length > 0) {
+      recommended_feedback.push(
+        `Prioritize completing the missing core sections: ${missing.slice(0, 2).join(', ')}.`,
+      );
+    }
+    if ((citation?.issuesCount ?? 0) > 0) {
+      recommended_feedback.push(
+        'Fix citation quality issues by adding missing references and correcting formatting inconsistencies.',
+      );
+    }
+    if ((plagiarism?.similarityPercent ?? 0) >= 30) {
+      recommended_feedback.push(
+        'Rework high-similarity passages with original synthesis and tighter source attribution.',
+      );
+    }
+    if (recommended_feedback.length < 3) {
+      recommended_feedback.push(
+        'Strengthen evidence-to-claim links in each major section and explicitly defend methodology choices.',
+      );
+    }
+    if (recommended_feedback.length < 3) {
+      recommended_feedback.push(
+        'Add a short limitations and future-work argument to improve examiner readiness.',
+      );
+    }
+
+    return {
+      status_note,
+      change_summary,
+      recommended_feedback: recommended_feedback.slice(0, 5),
+      stage_context: input.activeMilestoneStage,
+    };
+  }
+
+  private async resolveActiveMilestoneForThesis(thesis: Thesis): Promise<{
+    id: string;
+    title: string;
+    stage: string;
+    dueDate: string;
+    dueInDays: number;
+  } | null> {
     const scopedCohortIds = thesis.supervisorId
       ? await this.cohortsService.getStudentCohortIdsForProfessor(
           thesis.studentId,
@@ -962,6 +1194,7 @@ export class ThesesService {
     return {
       id: upcoming.id,
       title: upcoming.title,
+      stage: upcoming.stage,
       dueDate: upcoming.dueDate,
       dueInDays,
     };
@@ -977,6 +1210,104 @@ export class ThesesService {
     };
 
     return labels[status];
+  }
+
+  private validateAbstractFile(file: UploadedProposalFile): void {
+    if (file.size > 20 * 1024 * 1024) {
+      throw new BadRequestException('Abstract/proposal file must be 20MB or less.');
+    }
+
+    const acceptedMimeTypes = new Set([
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'text/plain',
+      'text/markdown',
+    ]);
+
+    if (acceptedMimeTypes.has(file.mimetype)) {
+      return;
+    }
+
+    const name = file.originalname.toLowerCase();
+    if (
+      name.endsWith('.pdf') ||
+      name.endsWith('.docx') ||
+      name.endsWith('.txt') ||
+      name.endsWith('.md')
+    ) {
+      return;
+    }
+
+    throw new BadRequestException('Only PDF, DOCX, TXT, and MD files are supported.');
+  }
+
+  private async extractAbstractText(file: UploadedProposalFile): Promise<string> {
+    if (file.mimetype === 'application/pdf' || file.originalname.toLowerCase().endsWith('.pdf')) {
+      const parsed = await this.extractPdfText(file.buffer);
+      if (parsed) return parsed;
+      throw new BadRequestException(
+        'Could not extract readable text from this PDF. Please upload TXT/MD or try another PDF.',
+      );
+    }
+
+    if (
+      file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+      file.originalname.toLowerCase().endsWith('.docx')
+    ) {
+      const parsed = await this.extractDocxText(file.buffer);
+      if (parsed) return parsed;
+      throw new BadRequestException(
+        'Could not extract readable text from this DOCX. Please upload TXT/MD or try another DOCX.',
+      );
+    }
+
+    const text = file.buffer.toString('utf8');
+    if (this.isLikelyBinaryText(text)) {
+      throw new BadRequestException(
+        'Uploaded file appears to be binary/non-text. Please use PDF, DOCX, TXT, or MD.',
+      );
+    }
+    return text;
+  }
+
+  private async extractPdfText(buffer: Buffer): Promise<string | null> {
+    try {
+      const pdfParse: (input: Buffer) => Promise<{ text?: string }> = runtimeRequire('pdf-parse');
+      const parsed = await pdfParse(buffer);
+      return parsed.text?.trim() || null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async extractDocxText(buffer: Buffer): Promise<string | null> {
+    try {
+      const mammoth: {
+        extractRawText: (input: { buffer: Buffer }) => Promise<{ value?: string }>;
+      } = runtimeRequire('mammoth');
+      const parsed = await mammoth.extractRawText({ buffer });
+      return parsed.value?.trim() || null;
+    } catch {
+      return null;
+    }
+  }
+
+  private isLikelyBinaryText(text: string): boolean {
+    if (!text || text.length < 100) {
+      return false;
+    }
+
+    let nonPrintable = 0;
+    for (let i = 0; i < text.length; i += 1) {
+      const code = text.charCodeAt(i);
+      const isPrintableAscii =
+        code === 9 || code === 10 || code === 13 || (code >= 32 && code <= 126);
+      if (!isPrintableAscii) {
+        nonPrintable += 1;
+      }
+    }
+
+    return nonPrintable / text.length > 0.22;
   }
 
   private getStatusLabel(status: ThesisStatus): string {

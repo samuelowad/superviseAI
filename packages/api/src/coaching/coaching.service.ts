@@ -51,7 +51,8 @@ export class CoachingService {
 
     const questions = await this.azureOpenAi.generateCoachQuestions({
       thesisText,
-      abstract: thesis.abstract,
+      // Use only latest submission text to avoid mixing stale thesis abstract context.
+      abstract: null,
       mode,
       count: 10,
       learnerProfile,
