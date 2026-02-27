@@ -1481,10 +1481,27 @@ export function StudentSettingsPage(): JSX.Element {
   );
 }
 
+type CoachingMode = 'mock_viva' | 'argument_defender' | 'socratic';
+
+const COACHING_MODE_LABELS: Record<CoachingMode, string> = {
+  mock_viva: 'Mock Viva',
+  argument_defender: 'Argument Defender',
+  socratic: 'Socratic Coach',
+};
+
+const COACHING_MODE_DESCRIPTIONS: Record<CoachingMode, string> = {
+  mock_viva: 'Face a rigorous viva examination based on your actual thesis content.',
+  argument_defender: 'Defend specific claims in your thesis against a critical academic reviewer.',
+  socratic: 'Deepen your understanding through guided Socratic questioning.',
+};
+
 export function StudentMockVivaPage(): JSX.Element {
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
   const [workspace, setWorkspace] = useState<WorkspaceResponse | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [selectedMode, setSelectedMode] = useState<CoachingMode>('mock_viva');
   const [messages, setMessages] = useState<VivaMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -1495,6 +1512,7 @@ export function StudentMockVivaPage(): JSX.Element {
   const [voiceInputEnabled, setVoiceInputEnabled] = useState(false);
   const [voiceOutputEnabled, setVoiceOutputEnabled] = useState(true);
   const [isListening, setIsListening] = useState(false);
+  const [useAzureVoice, setUseAzureVoice] = useState(true);
 
   const speechRecognitionCtor =
     (
@@ -1512,6 +1530,7 @@ export function StudentMockVivaPage(): JSX.Element {
 
   const supportsSpeechRecognition = Boolean(speechRecognitionCtor);
   const supportsSpeechSynthesis = typeof window.speechSynthesis !== 'undefined';
+  const supportsMediaRecorder = typeof MediaRecorder !== 'undefined';
 
   useEffect(() => {
     void (async () => {
@@ -1526,7 +1545,7 @@ export function StudentMockVivaPage(): JSX.Element {
 
   useEffect(() => {
     const RecognitionCtor = speechRecognitionCtor;
-    if (!RecognitionCtor || !voiceInputEnabled) {
+    if (!RecognitionCtor || !voiceInputEnabled || useAzureVoice) {
       recognitionRef.current?.stop();
       recognitionRef.current = null;
       setIsListening(false);
@@ -1555,13 +1574,38 @@ export function StudentMockVivaPage(): JSX.Element {
       recognitionRef.current = null;
       setIsListening(false);
     };
-  }, [speechRecognitionCtor, voiceInputEnabled]);
+  }, [speechRecognitionCtor, voiceInputEnabled, useAzureVoice]);
 
-  function speakText(content: string): void {
-    if (!voiceOutputEnabled || !supportsSpeechSynthesis || !content.trim()) {
-      return;
+  async function speakText(content: string): Promise<void> {
+    if (!voiceOutputEnabled || !content.trim()) return;
+
+    // Try Azure TTS first
+    if (useAzureVoice) {
+      try {
+        const token = localStorage.getItem('auth_token') ?? '';
+        const resp = await fetch('/api/v1/coaching/tts', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ text: content.slice(0, 800) }),
+        });
+        if (resp.ok) {
+          const blob = await resp.blob();
+          const url = URL.createObjectURL(blob);
+          const audio = new Audio(url);
+          audio.onended = () => URL.revokeObjectURL(url);
+          void audio.play();
+          return;
+        }
+      } catch {
+        // fall through to browser TTS
+      }
     }
 
+    // Browser TTS fallback
+    if (!supportsSpeechSynthesis) return;
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(content);
     utterance.rate = 0.96;
@@ -1570,16 +1614,84 @@ export function StudentMockVivaPage(): JSX.Element {
   }
 
   function toggleListening(): void {
-    if (!voiceInputEnabled || !recognitionRef.current) {
+    if (!voiceInputEnabled) return;
+
+    // Azure STT: record via MediaRecorder and POST to /coaching/voice
+    if (useAzureVoice && supportsMediaRecorder) {
+      if (isListening) {
+        mediaRecorderRef.current?.stop();
+        setIsListening(false);
+        return;
+      }
+
+      setError(null);
+      void navigator.mediaDevices
+        .getUserMedia({ audio: true })
+        .then((stream) => {
+          const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+          audioChunksRef.current = [];
+          recorder.ondataavailable = (e) => {
+            if (e.data.size > 0) audioChunksRef.current.push(e.data);
+          };
+          recorder.onstop = () => {
+            stream.getTracks().forEach((t) => t.stop());
+            void (async () => {
+              if (!sessionId || audioChunksRef.current.length === 0) return;
+              setLoading(true);
+              try {
+                const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+                const formData = new FormData();
+                formData.append('audio', blob, 'recording.webm');
+                const token = localStorage.getItem('auth_token') ?? '';
+                const resp = await fetch(`/api/v1/coaching/voice?session_id=${sessionId}`, {
+                  method: 'POST',
+                  headers: { Authorization: `Bearer ${token}` },
+                  body: formData,
+                });
+                if (!resp.ok) throw new Error('Voice recognition failed.');
+                const result = (await resp.json()) as {
+                  ai_message: string;
+                  question_index: number;
+                  total_questions: number;
+                  transcribed_text: string;
+                };
+                if (result.transcribed_text) {
+                  setMessages((current) => [
+                    ...current,
+                    { role: 'student', content: result.transcribed_text },
+                  ]);
+                }
+                setQuestionIndex(result.question_index);
+                setTotalQuestions(result.total_questions);
+                setMessages((current) => [
+                  ...current,
+                  { role: 'assistant', content: result.ai_message },
+                ]);
+                void speakText(result.ai_message);
+              } catch (err) {
+                setError(err instanceof Error ? err.message : 'Voice input failed.');
+              } finally {
+                setLoading(false);
+              }
+            })();
+          };
+          mediaRecorderRef.current = recorder;
+          recorder.start();
+          setIsListening(true);
+        })
+        .catch(() => {
+          setError('Microphone access denied. You can continue using text input.');
+        });
       return;
     }
 
+    // Browser Web Speech API fallback
+    if (!recognitionRef.current) return;
     if (isListening) {
       recognitionRef.current.stop();
       setIsListening(false);
       return;
     }
-
     setError(null);
     recognitionRef.current.start();
     setIsListening(true);
@@ -1587,7 +1699,7 @@ export function StudentMockVivaPage(): JSX.Element {
 
   async function startSession(): Promise<void> {
     if (!workspace?.thesis) {
-      setError('Create a thesis before starting mock viva.');
+      setError('Create a thesis before starting a coaching session.');
       return;
     }
 
@@ -1598,6 +1710,7 @@ export function StudentMockVivaPage(): JSX.Element {
     try {
       const result = await apiRequest<{
         session_id: string;
+        mode: CoachingMode;
         question_index: number;
         total_questions: number;
         ai_message: string;
@@ -1605,6 +1718,7 @@ export function StudentMockVivaPage(): JSX.Element {
         method: 'POST',
         body: {
           thesis_id: workspace.thesis.id,
+          mode: selectedMode,
         },
       });
 
@@ -1612,23 +1726,20 @@ export function StudentMockVivaPage(): JSX.Element {
       setQuestionIndex(result.question_index);
       setTotalQuestions(result.total_questions);
       setMessages([{ role: 'assistant', content: result.ai_message }]);
-      speakText(result.ai_message);
+      void speakText(result.ai_message);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to start mock viva.');
+      setError(err instanceof Error ? err.message : 'Unable to start coaching session.');
     } finally {
       setLoading(false);
     }
   }
 
   async function sendMessage(): Promise<void> {
-    if (!sessionId || !input.trim()) {
-      return;
-    }
+    if (!sessionId || !input.trim()) return;
 
     const content = input.trim();
     setInput('');
     setLoading(true);
-
     setMessages((current) => [...current, { role: 'student', content }]);
 
     try {
@@ -1636,18 +1747,16 @@ export function StudentMockVivaPage(): JSX.Element {
         ai_message: string;
         question_index: number;
         total_questions: number;
+        intent_blocked?: boolean;
       }>('/coaching/message', {
         method: 'POST',
-        body: {
-          session_id: sessionId,
-          content,
-        },
+        body: { session_id: sessionId, content },
       });
 
       setQuestionIndex(result.question_index);
       setTotalQuestions(result.total_questions);
       setMessages((current) => [...current, { role: 'assistant', content: result.ai_message }]);
-      speakText(result.ai_message);
+      void speakText(result.ai_message);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send message.');
     } finally {
@@ -1656,18 +1765,14 @@ export function StudentMockVivaPage(): JSX.Element {
   }
 
   async function endSession(): Promise<void> {
-    if (!sessionId) {
-      return;
-    }
+    if (!sessionId) return;
 
     setLoading(true);
 
     try {
       const result = await apiRequest<Record<string, unknown>>('/coaching/end', {
         method: 'POST',
-        body: {
-          session_id: sessionId,
-        },
+        body: { session_id: sessionId },
       });
       window.speechSynthesis.cancel();
       setSummary(result);
@@ -1679,53 +1784,120 @@ export function StudentMockVivaPage(): JSX.Element {
     }
   }
 
+  const modeLabel = COACHING_MODE_LABELS[selectedMode];
+
   return (
     <section className="mock-viva-page">
       <header className="mock-viva-header">
-        <h2>Mock Viva</h2>
-        <p>
-          Question {Math.max(questionIndex, 1)} / {totalQuestions}
-        </p>
+        <h2>{sessionId ? modeLabel : 'AI Coaching'}</h2>
+        {sessionId ? (
+          <p>
+            Question {Math.max(questionIndex, 1)} / {totalQuestions} &nbsp;·&nbsp;
+            <span style={{ color: 'var(--primary)', fontWeight: 600 }}>{modeLabel}</span>
+          </p>
+        ) : (
+          <p>Choose a mode and start an AI-powered coaching session based on your thesis.</p>
+        )}
       </header>
 
+      {/* Mode selector — only visible before session starts */}
+      {!sessionId && !summary ? (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+            gap: '0.75rem',
+            marginBottom: '1rem',
+          }}
+        >
+          {(Object.keys(COACHING_MODE_LABELS) as CoachingMode[]).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setSelectedMode(mode)}
+              style={{
+                border: `2px solid ${selectedMode === mode ? 'var(--primary)' : 'var(--border)'}`,
+                borderRadius: '12px',
+                padding: '1rem',
+                background: selectedMode === mode ? 'rgba(14,124,102,0.07)' : 'white',
+                textAlign: 'left',
+                cursor: 'pointer',
+                transition: 'all 0.15s',
+              }}
+            >
+              <div
+                style={{
+                  fontWeight: 700,
+                  color: selectedMode === mode ? 'var(--primary)' : 'var(--text)',
+                  marginBottom: '0.25rem',
+                }}
+              >
+                {COACHING_MODE_LABELS[mode]}
+              </div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                {COACHING_MODE_DESCRIPTIONS[mode]}
+              </div>
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {/* Voice / TTS controls */}
       <div className="mock-viva-voice-controls">
         <label>
           <input
             type="checkbox"
             checked={voiceOutputEnabled}
-            onChange={(event) => setVoiceOutputEnabled(event.target.checked)}
-            disabled={!supportsSpeechSynthesis}
+            onChange={(e) => setVoiceOutputEnabled(e.target.checked)}
           />
-          Examiner voice (TTS)
+          AI voice output
         </label>
         <label>
           <input
             type="checkbox"
             checked={voiceInputEnabled}
-            onChange={(event) => setVoiceInputEnabled(event.target.checked)}
-            disabled={!supportsSpeechRecognition}
+            onChange={(e) => setVoiceInputEnabled(e.target.checked)}
+            disabled={!supportsSpeechRecognition && !supportsMediaRecorder}
           />
-          Voice input (STT)
+          Voice input
         </label>
+        {voiceInputEnabled ? (
+          <label>
+            <input
+              type="checkbox"
+              checked={useAzureVoice}
+              onChange={(e) => setUseAzureVoice(e.target.checked)}
+            />
+            Use Azure AI voice
+          </label>
+        ) : null}
       </div>
 
       {error ? <p className="form-error">{error}</p> : null}
 
-      {!sessionId ? (
+      {!sessionId && !summary ? (
         <button
           type="button"
           className="btn btn-primary"
           onClick={() => void startSession()}
           disabled={loading}
         >
-          {loading ? 'Starting...' : 'Start Session'}
+          {loading ? 'Preparing questions from your thesis...' : `Start ${modeLabel}`}
         </button>
       ) : null}
 
       <div className="mock-viva-chat">
         {messages.map((message, index) => (
           <div key={`${message.role}-${index}`} className={`chat-bubble ${message.role}`}>
-            <strong>{message.role === 'assistant' ? 'Examiner' : 'You'}</strong>
+            <strong>
+              {message.role === 'assistant'
+                ? selectedMode === 'mock_viva'
+                  ? 'Examiner'
+                  : selectedMode === 'argument_defender'
+                    ? 'Reviewer'
+                    : 'Coach'
+                : 'You'}
+            </strong>
             <p>{message.content}</p>
           </div>
         ))}
@@ -1736,18 +1908,21 @@ export function StudentMockVivaPage(): JSX.Element {
           <textarea
             rows={3}
             value={input}
-            onChange={(event) => setInput(event.target.value)}
+            onChange={(e) => setInput(e.target.value)}
             placeholder="Type your answer..."
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void sendMessage();
+            }}
           />
           <div>
             {voiceInputEnabled ? (
               <button
                 type="button"
-                className="btn btn-ghost"
+                className={`btn ${isListening ? 'btn-primary' : 'btn-ghost'}`}
                 onClick={toggleListening}
                 disabled={loading}
               >
-                {isListening ? 'Stop Mic' : 'Use Mic'}
+                {isListening ? '⏹ Stop Recording' : '🎙 Use Mic'}
               </button>
             ) : null}
             <button
@@ -1772,20 +1947,32 @@ export function StudentMockVivaPage(): JSX.Element {
 
       {summary ? (
         <article className="placeholder-card viva-summary-card">
-          <h3>Session Summary</h3>
+          <h3>Session Summary — {modeLabel}</h3>
           <p>
-            Confidence Score:{' '}
+            Readiness Score:{' '}
             <strong>
               {typeof summary.readiness_score === 'number' ? `${summary.readiness_score}%` : 'N/A'}
             </strong>
           </p>
           <p>
-            Weak Topics:{' '}
+            Weak Areas:{' '}
             {Array.isArray(summary.weak_topics)
               ? (summary.weak_topics as string[]).join(', ')
               : 'N/A'}
           </p>
           <p>{typeof summary.recommendation === 'string' ? summary.recommendation : ''}</p>
+          <button
+            type="button"
+            className="btn btn-primary"
+            style={{ marginTop: '1rem' }}
+            onClick={() => {
+              setSummary(null);
+              setMessages([]);
+              setQuestionIndex(0);
+            }}
+          >
+            Start New Session
+          </button>
         </article>
       ) : null}
     </section>

@@ -18,6 +18,7 @@ import { StorageModule } from './storage/storage.module';
 import { SubmissionsModule } from './submissions/submissions.module';
 import { ThesesModule } from './theses/theses.module';
 import { UsersModule } from './users/users.module';
+import { WebhooksModule } from './webhooks/webhooks.module';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { UsersModule } from './users/users.module';
     MilestonesModule,
     DashboardModule,
     RealtimeModule,
+    WebhooksModule,
   ],
   controllers: [AppController],
   providers: [JwtAuthGuard, RolesGuard],

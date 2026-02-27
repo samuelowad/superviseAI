@@ -11,6 +11,8 @@ export interface TranscriptMessage {
   content: string;
 }
 
+export type CoachingMode = 'mock_viva' | 'argument_defender' | 'socratic';
+
 @Entity('coaching_sessions')
 export class CoachingSession {
   @PrimaryGeneratedColumn('uuid')
@@ -19,8 +21,14 @@ export class CoachingSession {
   @Column({ name: 'thesis_id', type: 'uuid' })
   thesisId!: string;
 
+  @Column({ type: 'text', default: 'mock_viva' })
+  mode!: CoachingMode;
+
   @Column({ type: 'jsonb', default: () => "'[]'" })
   transcript!: TranscriptMessage[];
+
+  @Column({ name: 'generated_questions', type: 'jsonb', default: () => "'[]'" })
+  generatedQuestions!: string[];
 
   @Column({ name: 'readiness_score', type: 'int', nullable: true })
   readinessScore!: number | null;
