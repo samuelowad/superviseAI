@@ -142,8 +142,10 @@ Return ONLY valid JSON with these exact fields:
     abstract: string | null;
     mode: 'mock_viva' | 'argument_defender' | 'socratic';
     count?: number;
+    learnerProfile?: 'standard' | 'esl_support' | 'anxious_speaker' | 'advanced_researcher';
   }): Promise<string[]> {
     const count = opts.count ?? 10;
+    const learnerProfile = opts.learnerProfile ?? 'standard';
 
     const modeDesc = {
       mock_viva: `${count} challenging viva voce examination questions an examiner panel would ask about this specific thesis`,
@@ -151,10 +153,21 @@ Return ONLY valid JSON with these exact fields:
       socratic: `${count} Socratic guiding questions that help the student think deeper about their specific thesis without giving answers`,
     }[opts.mode];
 
+    const profileInstructions: Record<string, string> = {
+      standard: '',
+      esl_support:
+        'Use simpler sentence construction and shorter clauses so questions remain clear for ESL learners.',
+      anxious_speaker:
+        'Use a supportive, confidence-building tone while still preserving academic challenge.',
+      advanced_researcher:
+        'Use high-rigor academic phrasing and deeper methodological pressure in the questions.',
+    };
+
     const prompt = `Based on this thesis, generate exactly ${count} ${modeDesc}.
 
 Abstract: ${opts.abstract ?? 'Not provided'}
 Thesis content (first 6000 chars): ${opts.thesisText.slice(0, 6000)}
+${profileInstructions[learnerProfile] ? `\nLearner profile guidance: ${profileInstructions[learnerProfile]}` : ''}
 
 Return ONLY a JSON array of exactly ${count} question strings. Be specific to this thesis — reference actual content, not generic questions.
 Example: ["Question about their specific method?", "Why did they choose X over Y?"]`;
@@ -191,17 +204,51 @@ Example: ["Question about their specific method?", "Why did they choose X over Y
     transcript: Array<{ role: 'assistant' | 'student'; content: string }>;
     userMessage: string;
     nextQuestion?: string;
+    // Adaptive loop context
+    learnerProfile?: 'standard' | 'esl_support' | 'anxious_speaker' | 'advanced_researcher';
+    confidence?: number;
+    difficultyBand?: 'easy' | 'medium' | 'hard';
   }): Promise<string | null> {
-    const systemPrompts: Record<string, string> = {
-      mock_viva: `You are a strict academic examiner conducting a viva voce for this thesis. Briefly acknowledge the student's answer (1 sentence), then ask the next question. Do not give away answers. Be rigorous but fair.\n\nThesis context: ${opts.thesisContext.slice(0, 3000)}${opts.nextQuestion ? `\n\nNext question to ask: "${opts.nextQuestion}"` : ''}`,
+    const profile = opts.learnerProfile ?? 'standard';
+    const difficulty = opts.difficultyBand ?? 'medium';
+    const confidence = opts.confidence ?? 60;
 
-      argument_defender: `You are a critical academic reviewer challenging the student's thesis. Push back on weaknesses, demand stronger evidence, challenge assumptions. Never provide answers. Be specific to their thesis content.\n\nThesis context: ${opts.thesisContext.slice(0, 3000)}`,
-
-      socratic: `You are a Socratic coach. Ask probing follow-up questions based on the student's response. Never answer for the student — only ask questions that deepen their thinking. Reference their specific thesis content.\n\nThesis context: ${opts.thesisContext.slice(0, 3000)}`,
+    const profileInstructions: Record<string, string> = {
+      standard: '',
+      esl_support:
+        'The student may not be a native English speaker. Use simple, clear sentence structures. Avoid idioms. Define any technical terms you use. Allow extra latitude for minor grammar issues.',
+      anxious_speaker:
+        'The student shows signs of anxiety. Use an encouraging, supportive tone. Break complex questions into smaller steps. Affirm effort before asking follow-ups. Never use confrontational phrasing.',
+      advanced_researcher:
+        'The student is an experienced researcher. Use precise academic language. Apply maximum critical rigour. Challenge methodology, epistemology, and generalisability without restraint.',
     };
 
+    const difficultyInstructions: Record<string, string> = {
+      easy: `Student confidence is low (${confidence}/100). Simplify your question. Ask only one narrow, specific follow-up. Begin with brief encouragement (1 sentence).`,
+      medium: `Student confidence is moderate (${confidence}/100). Maintain standard depth. Ask one challenge and one clarification if needed.`,
+      hard: `Student confidence is high (${confidence}/100). Push harder — demand deeper evidence, raise counterarguments, stress-test their methodology. Increase intellectual pressure.`,
+    };
+
+    const basePrompts: Record<string, string> = {
+      mock_viva: `You are a strict academic examiner conducting a viva voce. Briefly acknowledge the student's answer (1 sentence), then ask the next question. Be rigorous but fair. Do not give away answers.`,
+      argument_defender: `You are a critical academic reviewer. Challenge the student's claims directly. Demand stronger evidence, expose hidden assumptions, and test the limits of their argument. Never provide answers.`,
+      socratic: `You are a Socratic coach. Ask probing follow-up questions only. Never answer for the student. Every response must end with a question that deepens their thinking.`,
+    };
+
+    const systemContent = [
+      basePrompts[opts.mode],
+      '',
+      `Thesis context: ${opts.thesisContext.slice(0, 2500)}`,
+      opts.nextQuestion ? `\nNext question to ask: "${opts.nextQuestion}"` : '',
+      '',
+      `DIFFICULTY GUIDANCE: ${difficultyInstructions[difficulty]}`,
+      profileInstructions[profile] ? `\nLEARNER PROFILE: ${profileInstructions[profile]}` : '',
+    ]
+      .join('\n')
+      .trim();
+
     const messages: ChatMessage[] = [
-      { role: 'system', content: systemPrompts[opts.mode] },
+      { role: 'system', content: systemContent },
       ...opts.transcript.slice(-8).map((t) => ({
         role: (t.role === 'student' ? 'user' : 'assistant') as ChatRole,
         content: t.content,
@@ -209,7 +256,65 @@ Example: ["Question about their specific method?", "Why did they choose X over Y
       { role: 'user', content: opts.userMessage },
     ];
 
-    return this.chat(messages, 500);
+    return this.chat(messages, 550);
+  }
+
+  /**
+   * GPT per-turn scoring across 5 academic dimensions.
+   * Returns scores 0-100 for: argument_strength, evidence_quality,
+   * logical_consistency, clarity, confidence.
+   */
+  async scoreTurn(opts: { studentAnswer: string; question: string; thesisTitle: string }): Promise<{
+    argument_strength: number;
+    evidence_quality: number;
+    logical_consistency: number;
+    clarity: number;
+    confidence: number;
+  } | null> {
+    if (!this.client) return null;
+
+    const prompt = `You are an academic assessment engine. Score the following student answer in a thesis coaching session.
+
+Thesis: "${opts.thesisTitle}"
+Question asked: "${opts.question.slice(0, 300)}"
+Student answer: "${opts.studentAnswer.slice(0, 800)}"
+
+Return ONLY valid JSON with integer scores 0-100 for each dimension:
+{
+  "argument_strength": <how well-structured and assertive the core argument is>,
+  "evidence_quality": <quality and specificity of evidence or examples cited>,
+  "logical_consistency": <absence of contradictions and strength of reasoning chain>,
+  "clarity": <how clearly the answer is expressed and organised>,
+  "confidence": <confidence and assertiveness conveyed in the answer>
+}`;
+
+    const raw = await this.chat(
+      [
+        { role: 'system', content: 'Return only valid JSON. No explanation.' },
+        { role: 'user', content: prompt },
+      ],
+      200,
+    );
+
+    if (!raw) return null;
+    try {
+      const result = JSON.parse(this.cleanJson(raw)) as {
+        argument_strength?: number;
+        evidence_quality?: number;
+        logical_consistency?: number;
+        clarity?: number;
+        confidence?: number;
+      };
+      return {
+        argument_strength: Math.min(100, Math.max(0, result.argument_strength ?? 50)),
+        evidence_quality: Math.min(100, Math.max(0, result.evidence_quality ?? 50)),
+        logical_consistency: Math.min(100, Math.max(0, result.logical_consistency ?? 50)),
+        clarity: Math.min(100, Math.max(0, result.clarity ?? 50)),
+        confidence: Math.min(100, Math.max(0, result.confidence ?? 50)),
+      };
+    } catch {
+      return null;
+    }
   }
 
   async checkIntentGuard(

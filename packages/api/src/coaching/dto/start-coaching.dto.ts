@@ -1,6 +1,6 @@
 import { IsIn, IsOptional, IsUUID } from 'class-validator';
 
-import { CoachingMode } from '../entities/coaching-session.entity';
+import { CoachingMode, LearnerProfile } from '../entities/coaching-session.entity';
 
 export class StartCoachingDto {
   @IsOptional()
@@ -10,4 +10,8 @@ export class StartCoachingDto {
   @IsOptional()
   @IsIn(['mock_viva', 'argument_defender', 'socratic'])
   mode?: CoachingMode;
+
+  @IsOptional()
+  @IsIn(['standard', 'esl_support', 'anxious_speaker', 'advanced_researcher'])
+  learner_profile?: LearnerProfile;
 }

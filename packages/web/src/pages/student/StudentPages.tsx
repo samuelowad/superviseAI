@@ -1482,6 +1482,46 @@ export function StudentSettingsPage(): JSX.Element {
 }
 
 type CoachingMode = 'mock_viva' | 'argument_defender' | 'socratic';
+type LearnerProfile = 'standard' | 'esl_support' | 'anxious_speaker' | 'advanced_researcher';
+type DifficultyBand = 'easy' | 'medium' | 'hard';
+
+interface TurnScores {
+  argument_strength: number;
+  evidence_quality: number;
+  logical_consistency: number;
+  clarity: number;
+  confidence: number;
+}
+
+interface LiveMetrics {
+  turn: number;
+  confidence: number;
+  sentiment: 'positive' | 'neutral' | 'negative';
+  difficulty: DifficultyBand;
+  scores: TurnScores;
+  trend: 'improving' | 'stable' | 'declining';
+  hesitation_signals: string[];
+}
+
+interface DimensionSummary {
+  averages: TurnScores;
+  first_turn: TurnScores;
+  last_turn: TurnScores;
+  deltas: TurnScores;
+  best_improved: keyof TurnScores;
+  weakest_persistent: keyof TurnScores;
+}
+
+interface SessionSummary {
+  mode?: CoachingMode;
+  learner_profile?: LearnerProfile;
+  readiness_score?: number;
+  weak_topics?: string[];
+  recommendation?: string;
+  dimension_summary?: DimensionSummary;
+  progress_delta?: number;
+  turns_completed?: number;
+}
 
 const COACHING_MODE_LABELS: Record<CoachingMode, string> = {
   mock_viva: 'Mock Viva',
@@ -1495,6 +1535,50 @@ const COACHING_MODE_DESCRIPTIONS: Record<CoachingMode, string> = {
   socratic: 'Deepen your understanding through guided Socratic questioning.',
 };
 
+const LEARNER_PROFILE_LABELS: Record<LearnerProfile, string> = {
+  standard: 'Standard',
+  esl_support: 'ESL Support',
+  anxious_speaker: 'Anxious Speaker',
+  advanced_researcher: 'Advanced Researcher',
+};
+
+const LEARNER_PROFILE_DESCRIPTIONS: Record<LearnerProfile, string> = {
+  standard: 'Default coaching style suitable for most students.',
+  esl_support: 'Simpler language, slower progression, extra clarification prompts.',
+  anxious_speaker: 'Supportive tone, confidence-building follow-ups, reduced confrontation.',
+  advanced_researcher: 'Maximum rigour, stress-test methodology, fast difficulty ramp.',
+};
+
+const DIFFICULTY_COLORS: Record<DifficultyBand, string> = {
+  easy: '#16a34a',
+  medium: '#d97706',
+  hard: '#dc2626',
+};
+
+const TREND_ICONS: Record<string, string> = {
+  improving: '↑',
+  stable: '→',
+  declining: '↓',
+};
+
+const SCORE_LABELS: Record<keyof TurnScores, string> = {
+  argument_strength: 'Argument',
+  evidence_quality: 'Evidence',
+  logical_consistency: 'Logic',
+  clarity: 'Clarity',
+  confidence: 'Confidence',
+};
+
+function adaptationMessage(metrics: LiveMetrics): string {
+  if (metrics.difficulty === 'easy') {
+    return 'Coach reduced complexity due to lower confidence signals.';
+  }
+  if (metrics.difficulty === 'hard') {
+    return 'Coach increased rigour due to strong confidence signals.';
+  }
+  return 'Coach is maintaining balanced challenge depth.';
+}
+
 export function StudentMockVivaPage(): JSX.Element {
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -1502,17 +1586,20 @@ export function StudentMockVivaPage(): JSX.Element {
   const [workspace, setWorkspace] = useState<WorkspaceResponse | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [selectedMode, setSelectedMode] = useState<CoachingMode>('mock_viva');
+  const [selectedProfile, setSelectedProfile] = useState<LearnerProfile>('standard');
   const [messages, setMessages] = useState<VivaMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [questionIndex, setQuestionIndex] = useState(0);
   const [totalQuestions, setTotalQuestions] = useState(10);
-  const [summary, setSummary] = useState<Record<string, unknown> | null>(null);
+  const [summary, setSummary] = useState<SessionSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [voiceInputEnabled, setVoiceInputEnabled] = useState(false);
   const [voiceOutputEnabled, setVoiceOutputEnabled] = useState(true);
   const [isListening, setIsListening] = useState(false);
   const [useAzureVoice, setUseAzureVoice] = useState(true);
+  const [liveMetrics, setLiveMetrics] = useState<LiveMetrics | null>(null);
+  const [metricsHistory, setMetricsHistory] = useState<LiveMetrics[]>([]);
 
   const speechRecognitionCtor =
     (
@@ -1654,6 +1741,7 @@ export function StudentMockVivaPage(): JSX.Element {
                   question_index: number;
                   total_questions: number;
                   transcribed_text: string;
+                  live_metrics?: LiveMetrics;
                 };
                 if (result.transcribed_text) {
                   setMessages((current) => [
@@ -1667,6 +1755,10 @@ export function StudentMockVivaPage(): JSX.Element {
                   ...current,
                   { role: 'assistant', content: result.ai_message },
                 ]);
+                if (result.live_metrics) {
+                  setLiveMetrics(result.live_metrics);
+                  setMetricsHistory((current) => [...current, result.live_metrics as LiveMetrics]);
+                }
                 void speakText(result.ai_message);
               } catch (err) {
                 setError(err instanceof Error ? err.message : 'Voice input failed.');
@@ -1714,17 +1806,21 @@ export function StudentMockVivaPage(): JSX.Element {
         question_index: number;
         total_questions: number;
         ai_message: string;
+        learner_profile?: LearnerProfile;
       }>('/coaching/start', {
         method: 'POST',
         body: {
           thesis_id: workspace.thesis.id,
           mode: selectedMode,
+          learner_profile: selectedProfile,
         },
       });
 
       setSessionId(result.session_id);
       setQuestionIndex(result.question_index);
       setTotalQuestions(result.total_questions);
+      setLiveMetrics(null);
+      setMetricsHistory([]);
       setMessages([{ role: 'assistant', content: result.ai_message }]);
       void speakText(result.ai_message);
     } catch (err) {
@@ -1748,6 +1844,7 @@ export function StudentMockVivaPage(): JSX.Element {
         question_index: number;
         total_questions: number;
         intent_blocked?: boolean;
+        live_metrics?: LiveMetrics;
       }>('/coaching/message', {
         method: 'POST',
         body: { session_id: sessionId, content },
@@ -1756,6 +1853,10 @@ export function StudentMockVivaPage(): JSX.Element {
       setQuestionIndex(result.question_index);
       setTotalQuestions(result.total_questions);
       setMessages((current) => [...current, { role: 'assistant', content: result.ai_message }]);
+      if (result.live_metrics) {
+        setLiveMetrics(result.live_metrics);
+        setMetricsHistory((current) => [...current, result.live_metrics as LiveMetrics]);
+      }
       void speakText(result.ai_message);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send message.');
@@ -1770,7 +1871,7 @@ export function StudentMockVivaPage(): JSX.Element {
     setLoading(true);
 
     try {
-      const result = await apiRequest<Record<string, unknown>>('/coaching/end', {
+      const result = await apiRequest<SessionSummary>('/coaching/end', {
         method: 'POST',
         body: { session_id: sessionId },
       });
@@ -1842,6 +1943,46 @@ export function StudentMockVivaPage(): JSX.Element {
         </div>
       ) : null}
 
+      {!sessionId && !summary ? (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+            gap: '0.75rem',
+            marginBottom: '1rem',
+          }}
+        >
+          {(Object.keys(LEARNER_PROFILE_LABELS) as LearnerProfile[]).map((profile) => (
+            <button
+              key={profile}
+              type="button"
+              onClick={() => setSelectedProfile(profile)}
+              style={{
+                border: `2px solid ${selectedProfile === profile ? 'var(--primary)' : 'var(--border)'}`,
+                borderRadius: '12px',
+                padding: '0.85rem',
+                background: selectedProfile === profile ? 'rgba(14,124,102,0.07)' : 'white',
+                textAlign: 'left',
+                cursor: 'pointer',
+              }}
+            >
+              <div
+                style={{
+                  fontWeight: 700,
+                  color: selectedProfile === profile ? 'var(--primary)' : 'var(--text)',
+                  marginBottom: '0.2rem',
+                }}
+              >
+                {LEARNER_PROFILE_LABELS[profile]}
+              </div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.35 }}>
+                {LEARNER_PROFILE_DESCRIPTIONS[profile]}
+              </div>
+            </button>
+          ))}
+        </div>
+      ) : null}
+
       {/* Voice / TTS controls */}
       <div className="mock-viva-voice-controls">
         <label>
@@ -1884,6 +2025,107 @@ export function StudentMockVivaPage(): JSX.Element {
         >
           {loading ? 'Preparing questions from your thesis...' : `Start ${modeLabel}`}
         </button>
+      ) : null}
+
+      {sessionId && liveMetrics ? (
+        <article className="placeholder-card" style={{ marginTop: '1rem' }}>
+          <h3 style={{ marginBottom: '0.5rem' }}>Live Coaching Analytics</h3>
+          <p style={{ marginBottom: '0.65rem', color: 'var(--text-secondary)' }}>
+            Turn {liveMetrics.turn} · Profile: {LEARNER_PROFILE_LABELS[selectedProfile]} · Trend{' '}
+            {TREND_ICONS[liveMetrics.trend]} {liveMetrics.trend}
+          </p>
+
+          <div
+            style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '0.65rem' }}
+          >
+            <span
+              style={{
+                border: `1px solid ${DIFFICULTY_COLORS[liveMetrics.difficulty]}`,
+                color: DIFFICULTY_COLORS[liveMetrics.difficulty],
+                borderRadius: '999px',
+                padding: '0.2rem 0.65rem',
+                fontSize: '0.78rem',
+                fontWeight: 700,
+                textTransform: 'uppercase',
+              }}
+            >
+              {liveMetrics.difficulty}
+            </span>
+            <span className="status-pill status-info">Sentiment: {liveMetrics.sentiment}</span>
+            <span className="status-pill status-success">
+              Confidence: {liveMetrics.confidence}%
+            </span>
+          </div>
+
+          <div
+            style={{
+              height: '8px',
+              background: 'var(--border)',
+              borderRadius: '999px',
+              overflow: 'hidden',
+              marginBottom: '0.65rem',
+            }}
+          >
+            <div
+              style={{
+                width: `${Math.max(0, Math.min(100, liveMetrics.confidence))}%`,
+                height: '100%',
+                background:
+                  liveMetrics.confidence >= 70
+                    ? '#16a34a'
+                    : liveMetrics.confidence >= 40
+                      ? '#d97706'
+                      : '#dc2626',
+              }}
+            />
+          </div>
+
+          <p
+            style={{ marginBottom: '0.75rem', fontSize: '0.84rem', color: 'var(--text-secondary)' }}
+          >
+            {adaptationMessage(liveMetrics)}
+          </p>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+              gap: '0.5rem',
+              marginBottom: '0.6rem',
+            }}
+          >
+            {(Object.keys(SCORE_LABELS) as Array<keyof TurnScores>).map((scoreKey) => (
+              <div key={scoreKey} className="metric-card" style={{ padding: '0.6rem' }}>
+                <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                  {SCORE_LABELS[scoreKey]}
+                </p>
+                <p style={{ margin: '0.15rem 0 0', fontWeight: 800 }}>
+                  {liveMetrics.scores[scoreKey]}%
+                </p>
+              </div>
+            ))}
+          </div>
+
+          {liveMetrics.hesitation_signals.length > 0 ? (
+            <p style={{ marginBottom: 0, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+              Signals: {liveMetrics.hesitation_signals.join(', ')}
+            </p>
+          ) : null}
+
+          {metricsHistory.length > 1 ? (
+            <p
+              style={{
+                marginTop: '0.55rem',
+                marginBottom: 0,
+                fontSize: '0.78rem',
+                color: 'var(--text-secondary)',
+              }}
+            >
+              Session confidence trend:{' '}
+              {metricsHistory.map((entry) => entry.confidence).join(' → ')}
+            </p>
+          ) : null}
+        </article>
       ) : null}
 
       <div className="mock-viva-chat">
@@ -1948,6 +2190,11 @@ export function StudentMockVivaPage(): JSX.Element {
       {summary ? (
         <article className="placeholder-card viva-summary-card">
           <h3>Session Summary — {modeLabel}</h3>
+          {summary.learner_profile ? (
+            <p style={{ marginBottom: '0.4rem', color: 'var(--text-secondary)' }}>
+              Learner Profile: {LEARNER_PROFILE_LABELS[summary.learner_profile]}
+            </p>
+          ) : null}
           <p>
             Readiness Score:{' '}
             <strong>
@@ -1956,11 +2203,63 @@ export function StudentMockVivaPage(): JSX.Element {
           </p>
           <p>
             Weak Areas:{' '}
-            {Array.isArray(summary.weak_topics)
-              ? (summary.weak_topics as string[]).join(', ')
-              : 'N/A'}
+            {Array.isArray(summary.weak_topics) ? summary.weak_topics.join(', ') : 'N/A'}
           </p>
           <p>{typeof summary.recommendation === 'string' ? summary.recommendation : ''}</p>
+          {typeof summary.turns_completed === 'number' ? (
+            <p style={{ marginTop: '0.25rem', marginBottom: '0.3rem', fontSize: '0.85rem' }}>
+              Turns Completed: <strong>{summary.turns_completed}</strong>
+            </p>
+          ) : null}
+          {typeof summary.progress_delta === 'number' ? (
+            <p style={{ marginTop: '0.25rem', marginBottom: '0.7rem', fontSize: '0.85rem' }}>
+              Progress Delta:{' '}
+              <strong style={{ color: summary.progress_delta >= 0 ? '#16a34a' : '#dc2626' }}>
+                {summary.progress_delta >= 0 ? '+' : ''}
+                {summary.progress_delta}
+              </strong>
+            </p>
+          ) : null}
+
+          {summary.dimension_summary?.averages ? (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+                gap: '0.55rem',
+                marginBottom: '0.75rem',
+              }}
+            >
+              {(Object.keys(SCORE_LABELS) as Array<keyof TurnScores>).map((scoreKey) => (
+                <div
+                  key={`summary-${scoreKey}`}
+                  className="metric-card"
+                  style={{ padding: '0.6rem' }}
+                >
+                  <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                    Avg {SCORE_LABELS[scoreKey]}
+                  </p>
+                  <p style={{ margin: '0.1rem 0 0', fontWeight: 800 }}>
+                    {summary.dimension_summary?.averages[scoreKey] ?? 0}%
+                  </p>
+                  <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                    Δ {summary.dimension_summary?.deltas[scoreKey] ?? 0}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          {summary.dimension_summary ? (
+            <p style={{ marginTop: '0.25rem', marginBottom: '0.65rem', fontSize: '0.84rem' }}>
+              Best improved:{' '}
+              <strong>{SCORE_LABELS[summary.dimension_summary.best_improved]}</strong>
+              {' · '}
+              Weakest persistent:{' '}
+              <strong>{SCORE_LABELS[summary.dimension_summary.weakest_persistent]}</strong>
+            </p>
+          ) : null}
+
           <button
             type="button"
             className="btn btn-primary"
@@ -1969,6 +2268,8 @@ export function StudentMockVivaPage(): JSX.Element {
               setSummary(null);
               setMessages([]);
               setQuestionIndex(0);
+              setLiveMetrics(null);
+              setMetricsHistory([]);
             }}
           >
             Start New Session
