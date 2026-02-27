@@ -1,26 +1,51 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from '../../lib/router';
 import { useAuth } from '../../auth/AuthContext';
 import { roleHomePath } from '../../auth/routes';
 
+/* ───── scroll-reveal hook ───── */
+function useReveal<T extends HTMLElement>(): React.RefObject<T> {
+  const ref = useRef<T>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          el.classList.add('lp-revealed');
+          io.unobserve(el);
+        }
+      },
+      { threshold: 0.15 },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+  return ref;
+}
+
 /* ───── animated counter hook ───── */
-function useCounter(target: number, duration = 1800): number {
+function useCounter(target: number, duration = 1200): number {
   const [value, setValue] = useState(0);
   useEffect(() => {
-    let start = 0;
-    const step = target / (duration / 16);
-    const id = setInterval(() => {
-      start += step;
-      if (start >= target) {
-        setValue(target);
-        clearInterval(id);
-      } else {
-        setValue(Math.floor(start));
-      }
-    }, 16);
-    return () => clearInterval(id);
+    let start: number | null = null;
+    let raf: number;
+    const step = (ts: number) => {
+      if (!start) start = ts;
+      const progress = Math.min((ts - start) / duration, 1);
+      setValue(Math.round(progress * target));
+      if (progress < 1) raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
   }, [target, duration]);
   return value;
+}
+
+/* ───── smooth scroll helper ───── */
+function scrollToId(id: string): void {
+  const el = document.getElementById(id);
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 /* ───── icon components ───── */
@@ -134,7 +159,69 @@ function IconCheck() {
   );
 }
 
+function IconStudent() {
+  return (
+    <svg
+      width="28"
+      height="28"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M22 10v6M2 10l10-5 10 5-10 5z" />
+      <path d="M6 12v5c3 3 9 3 12 0v-5" />
+    </svg>
+  );
+}
+
+function IconProfessor() {
+  return (
+    <svg
+      width="28"
+      height="28"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="2" y="3" width="20" height="14" rx="2" />
+      <path d="M8 21h8" />
+      <path d="M12 17v4" />
+      <path d="M7 8h2m2 0h2m2 0h2" />
+      <path d="M7 12h10" />
+    </svg>
+  );
+}
+
 /* ───── data ───── */
+const AUDIENCES = [
+  {
+    icon: <IconStudent />,
+    role: 'For Students',
+    points: [
+      'Upload drafts and get instant AI progress scoring',
+      'Practice your defense with adaptive Mock Viva coaching',
+      'Track citation health and plagiarism across versions',
+      'See exactly what changed between each draft iteration',
+    ],
+  },
+  {
+    icon: <IconProfessor />,
+    role: 'For Professors',
+    points: [
+      'Dashboard with risk-flagged student overview',
+      'Side-by-side PDF and text diff for every version',
+      'Set milestones and track cohort-wide completion',
+      'One-click feedback, revision requests, and approvals',
+    ],
+  },
+] as const;
+
 const FEATURES = [
   {
     icon: <IconThesisTrack />,
@@ -181,25 +268,11 @@ const STEPS = [
   },
 ] as const;
 
-const TESTIMONIALS = [
-  {
-    quote:
-      'As a supervisor, I can now monitor thesis development across my entire cohort in real time. The risk indicators alone save me hours each week.',
-    name: 'Dr. Sarah Mitchell',
-    role: 'Professor of Computer Science',
-  },
-  {
-    quote:
-      "The mock viva simulation helped me identify weaknesses I didn't know I had. I walked into my defense feeling genuinely prepared.",
-    name: 'James Okonkwo',
-    role: 'PhD Candidate, Data Science',
-  },
-] as const;
-
 /* ───── main component ───── */
 export function LandingPage(): JSX.Element {
   const { user } = useAuth();
   const [scrolled, setScrolled] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 20);
@@ -207,9 +280,19 @@ export function LandingPage(): JSX.Element {
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
-  const progressScore = useCounter(74);
-  const citationScore = useCounter(92);
-  const vivaReady = useCounter(68);
+  const handleNavClick = useCallback((e: React.MouseEvent<HTMLAnchorElement>, id: string) => {
+    e.preventDefault();
+    setMobileMenuOpen(false);
+    scrollToId(id);
+  }, []);
+
+  const progress = useCounter(74);
+  const citations = useCounter(92);
+  const viva = useCounter(68);
+
+  const featuresRef = useReveal<HTMLDivElement>();
+  const howRef = useReveal<HTMLDivElement>();
+  const audienceRef = useReveal<HTMLDivElement>();
 
   return (
     <div className="lp">
@@ -222,9 +305,15 @@ export function LandingPage(): JSX.Element {
           </Link>
 
           <nav className="lp-links" aria-label="Main navigation">
-            <a href="#features">Features</a>
-            <a href="#how-it-works">How it works</a>
-            <a href="#testimonials">Testimonials</a>
+            <a href="#features" onClick={(e) => handleNavClick(e, 'features')}>
+              Features
+            </a>
+            <a href="#who-its-for" onClick={(e) => handleNavClick(e, 'who-its-for')}>
+              Who it's for
+            </a>
+            <a href="#how-it-works" onClick={(e) => handleNavClick(e, 'how-it-works')}>
+              How it works
+            </a>
           </nav>
 
           <div className="lp-auth">
@@ -238,7 +327,45 @@ export function LandingPage(): JSX.Element {
               {user ? 'Open app' : 'Get started free'}
             </Link>
           </div>
+
+          <button
+            type="button"
+            className="lp-hamburger"
+            aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
+            aria-expanded={mobileMenuOpen}
+            onClick={() => setMobileMenuOpen((v) => !v)}
+          >
+            <span className={`lp-hamburger-bar${mobileMenuOpen ? ' open' : ''}`} />
+          </button>
         </div>
+
+        {mobileMenuOpen && (
+          <nav className="lp-mobile-menu" aria-label="Mobile navigation">
+            <a href="#features" onClick={(e) => handleNavClick(e, 'features')}>
+              Features
+            </a>
+            <a href="#who-its-for" onClick={(e) => handleNavClick(e, 'who-its-for')}>
+              Who it's for
+            </a>
+            <a href="#how-it-works" onClick={(e) => handleNavClick(e, 'how-it-works')}>
+              How it works
+            </a>
+            <div className="lp-mobile-menu-auth">
+              <Link
+                className="btn btn-ghost btn-sm btn-full"
+                to={user ? roleHomePath(user.role) : '/login'}
+              >
+                {user ? 'Dashboard' : 'Sign in'}
+              </Link>
+              <Link
+                className="btn btn-primary btn-sm btn-full"
+                to={user ? roleHomePath(user.role) : '/register'}
+              >
+                {user ? 'Open app' : 'Get started free'}
+              </Link>
+            </div>
+          </nav>
+        )}
       </header>
 
       {/* ── HERO ── */}
@@ -258,10 +385,14 @@ export function LandingPage(): JSX.Element {
             </p>
             <div className="lp-hero-ctas">
               <Link className="btn btn-primary btn-lg" to="/register">
-                Start free — no credit card
+                Get started free
                 <IconArrowRight />
               </Link>
-              <a className="btn btn-muted btn-lg" href="#how-it-works">
+              <a
+                className="btn btn-muted btn-lg"
+                href="#how-it-works"
+                onClick={(e) => handleNavClick(e, 'how-it-works')}
+              >
                 See how it works
               </a>
             </div>
@@ -293,27 +424,27 @@ export function LandingPage(): JSX.Element {
               <div className="lp-dash-body">
                 <div className="lp-metric lp-metric--main">
                   <span className="lp-metric-label">Progress Score</span>
-                  <span className="lp-metric-value">{progressScore}%</span>
+                  <span className="lp-metric-value">{progress}%</span>
                   <div className="lp-metric-bar">
-                    <div className="lp-metric-fill" style={{ width: `${progressScore}%` }} />
+                    <div className="lp-metric-fill" style={{ width: `${progress}%` }} />
                   </div>
-                  <span className="lp-metric-trend lp-metric-trend--up">+4% from last draft</span>
+                  <span className="lp-metric-trend lp-metric-trend--up">↑ 12% vs last draft</span>
                 </div>
                 <div className="lp-metrics-row">
                   <div className="lp-metric lp-metric--sm">
                     <span className="lp-metric-label">Citation Health</span>
-                    <span className="lp-metric-value">{citationScore}%</span>
-                    <span className="lp-metric-sub">2 issues found</span>
+                    <span className="lp-metric-value">{citations}%</span>
+                    <span className="lp-metric-sub">3 issues auto-detected</span>
                   </div>
                   <div className="lp-metric lp-metric--sm">
                     <span className="lp-metric-label">Viva Readiness</span>
-                    <span className="lp-metric-value">{vivaReady}%</span>
-                    <span className="lp-metric-sub">3 sessions done</span>
+                    <span className="lp-metric-value">{viva}%</span>
+                    <span className="lp-metric-sub">AI coaching score</span>
                   </div>
                 </div>
                 <div className="lp-plag-badge">
                   <span className="lp-plag-dot" />
-                  Plagiarism: <strong>Clear — 96% original</strong>
+                  Plagiarism: <strong>Clear — 97% original</strong>
                 </div>
               </div>
             </div>
@@ -336,12 +467,40 @@ export function LandingPage(): JSX.Element {
             final defense.
           </p>
         </div>
-        <div className="lp-feature-grid">
+        <div className="lp-feature-grid lp-reveal" ref={featuresRef}>
           {FEATURES.map((f) => (
             <article key={f.title} className="lp-feature-card">
               <div className="lp-feature-icon">{f.icon}</div>
               <h3>{f.title}</h3>
               <p>{f.desc}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      {/* ── WHO IT'S FOR ── */}
+      <section id="who-its-for" className="lp-audience">
+        <div className="lp-section-header">
+          <div className="lp-pill">Built for Both Sides</div>
+          <h2>Designed for students and supervisors</h2>
+          <p>
+            Whether you're writing your thesis or reviewing one, SuperviseAI gives you the tools to
+            move faster and with more clarity.
+          </p>
+        </div>
+        <div className="lp-audience-grid lp-reveal" ref={audienceRef}>
+          {AUDIENCES.map((a) => (
+            <article key={a.role} className="lp-audience-card">
+              <div className="lp-audience-icon">{a.icon}</div>
+              <h3>{a.role}</h3>
+              <ul>
+                {a.points.map((p) => (
+                  <li key={p}>
+                    <IconCheck />
+                    {p}
+                  </li>
+                ))}
+              </ul>
             </article>
           ))}
         </div>
@@ -353,7 +512,7 @@ export function LandingPage(): JSX.Element {
           <div className="lp-pill">Simple Process</div>
           <h2>From upload to defense in four steps</h2>
         </div>
-        <div className="lp-steps">
+        <div className="lp-steps lp-reveal" ref={howRef}>
           {STEPS.map((s, i) => (
             <div key={s.num} className="lp-step">
               <div className="lp-step-num">{s.num}</div>
@@ -365,32 +524,10 @@ export function LandingPage(): JSX.Element {
         </div>
       </section>
 
-      {/* ── TESTIMONIALS ── */}
-      <section id="testimonials" className="lp-testimonials">
-        <div className="lp-section-header">
-          <div className="lp-pill">What People Say</div>
-          <h2>Trusted by researchers and supervisors</h2>
-        </div>
-        <div className="lp-testimonial-grid">
-          {TESTIMONIALS.map((t) => (
-            <blockquote key={t.name} className="lp-testimonial">
-              <p>"{t.quote}"</p>
-              <footer>
-                <strong>{t.name}</strong>
-                <span>{t.role}</span>
-              </footer>
-            </blockquote>
-          ))}
-        </div>
-      </section>
-
       {/* ── CTA BAND ── */}
       <section className="lp-cta-band">
         <h2>Ready to accelerate your thesis journey?</h2>
-        <p>
-          Join students and supervisors already using SuperviseAI to produce better research,
-          faster.
-        </p>
+        <p>Upload your first draft and get AI-powered feedback in minutes — completely free.</p>
         <div className="lp-cta-band-actions">
           <Link className="btn btn-primary btn-lg" to="/register">
             Create free account <IconArrowRight />
@@ -408,9 +545,15 @@ export function LandingPage(): JSX.Element {
           </div>
           <div className="lp-footer-col">
             <h4>Product</h4>
-            <a href="#features">Features</a>
-            <a href="#how-it-works">How it works</a>
-            <a href="#testimonials">Testimonials</a>
+            <a href="#features" onClick={(e) => handleNavClick(e, 'features')}>
+              Features
+            </a>
+            <a href="#who-its-for" onClick={(e) => handleNavClick(e, 'who-its-for')}>
+              Who it's for
+            </a>
+            <a href="#how-it-works" onClick={(e) => handleNavClick(e, 'how-it-works')}>
+              How it works
+            </a>
           </div>
           <div className="lp-footer-col">
             <h4>Account</h4>

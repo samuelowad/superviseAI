@@ -33,7 +33,7 @@ export class Submission {
   @Column({ name: 'milestone_id', type: 'uuid', nullable: true })
   milestoneId!: string | null;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ name: 'extracted_text', type: 'text', nullable: true })
   extractedText!: string | null;
 
   @Column({
