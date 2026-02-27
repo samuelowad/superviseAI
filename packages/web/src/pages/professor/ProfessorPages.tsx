@@ -334,14 +334,16 @@ function renderWordDiff(text: string, counterText: string, side: 'left' | 'right
 function LineChart({
   data,
   width = 400,
-  height = 140,
+  height = 180,
 }: {
   data: Array<{ x: number; y: number; label: string }>;
   width?: number;
   height?: number;
 }): JSX.Element {
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
+
   if (data.length === 0) return <p>No data.</p>;
-  const pad = { top: 12, right: 16, bottom: 24, left: 32 };
+  const pad = { top: 16, right: 20, bottom: 28, left: 36 };
   const w = width - pad.left - pad.right;
   const h = height - pad.top - pad.bottom;
   const xs = data.map((d) => d.x);
@@ -350,15 +352,45 @@ function LineChart({
   const toSvgX = (x: number) =>
     maxX === minX ? pad.left + w / 2 : pad.left + ((x - minX) / (maxX - minX)) * w;
   const toSvgY = (y: number) => pad.top + (1 - y / 100) * h;
-  const points = data.map((d) => `${toSvgX(d.x)},${toSvgY(d.y)}`).join(' ');
+
+  /* smoothed cubic path for the line */
+  const pts = data.map((d) => ({ x: toSvgX(d.x), y: toSvgY(d.y) }));
+  let linePath = `M${pts[0].x},${pts[0].y}`;
+  for (let i = 1; i < pts.length; i++) {
+    const prev = pts[i - 1];
+    const cur = pts[i];
+    const cpx = (prev.x + cur.x) / 2;
+    linePath += ` C${cpx},${prev.y} ${cpx},${cur.y} ${cur.x},${cur.y}`;
+  }
+
+  /* area fill path (same curve, then close along bottom) */
+  const areaPath = `${linePath} L${pts[pts.length - 1].x},${pad.top + h} L${pts[0].x},${pad.top + h} Z`;
+
+  const gradientId = 'lc-grad-' + data.length;
+  const lineGradId = 'lc-line-grad-' + data.length;
+
   return (
     <svg
       viewBox={`0 0 ${width} ${height}`}
-      preserveAspectRatio="none"
-      style={{ width: '100%', height: `${height}px` }}
+      preserveAspectRatio="xMidYMid meet"
+      className="analytics-line-chart"
       aria-label="Progress chart"
+      onMouseLeave={() => setHoveredIdx(null)}
     >
-      {[25, 50, 75].map((y) => (
+      <defs>
+        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="var(--primary)" stopOpacity="0.25" />
+          <stop offset="100%" stopColor="var(--primary)" stopOpacity="0.02" />
+        </linearGradient>
+        <linearGradient id={lineGradId} x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stopColor="var(--primary)" stopOpacity="0.6" />
+          <stop offset="50%" stopColor="var(--primary)" stopOpacity="1" />
+          <stop offset="100%" stopColor="var(--primary)" stopOpacity="0.85" />
+        </linearGradient>
+      </defs>
+
+      {/* Horizontal grid lines */}
+      {[0, 25, 50, 75, 100].map((y) => (
         <line
           key={y}
           x1={pad.left}
@@ -367,39 +399,143 @@ function LineChart({
           y2={toSvgY(y)}
           stroke="rgba(0,0,0,0.06)"
           strokeWidth="1"
+          strokeDasharray={y === 0 || y === 100 ? 'none' : '3,3'}
         />
       ))}
+
+      {/* Y-axis labels */}
       {[0, 50, 100].map((y) => (
-        <text key={y} x={pad.left - 4} y={toSvgY(y) + 4} fontSize="9" textAnchor="end" fill="#888">
+        <text
+          key={y}
+          x={pad.left - 6}
+          y={toSvgY(y) + 3.5}
+          fontSize="9"
+          textAnchor="end"
+          fill="#aaa"
+          fontWeight="500"
+        >
           {y}
         </text>
       ))}
-      <polyline points={points} fill="none" stroke="var(--primary)" strokeWidth="2" />
-      {data.map((d) => (
-        <circle
-          key={d.x}
-          cx={toSvgX(d.x)}
-          cy={toSvgY(d.y)}
-          r="4"
-          fill="white"
+
+      {/* Gradient area fill */}
+      <path d={areaPath} fill={`url(#${gradientId})`} className="analytics-area-path" />
+
+      {/* Main curve */}
+      <path
+        d={linePath}
+        fill="none"
+        stroke={`url(#${lineGradId})`}
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="analytics-line-path"
+      />
+
+      {/* Hover crosshair */}
+      {hoveredIdx !== null && pts[hoveredIdx] ? (
+        <line
+          x1={pts[hoveredIdx].x}
+          y1={pad.top}
+          x2={pts[hoveredIdx].x}
+          y2={pad.top + h}
           stroke="var(--primary)"
-          strokeWidth="2"
-        >
-          <title>{d.label}</title>
-        </circle>
-      ))}
-      {data.map((d) => (
+          strokeWidth="1"
+          strokeDasharray="3,3"
+          opacity="0.4"
+        />
+      ) : null}
+
+      {/* Data points */}
+      {pts.map((pt, i) => {
+        const isHovered = hoveredIdx === i;
+        return (
+          <g key={i} onMouseEnter={() => setHoveredIdx(i)} style={{ cursor: 'pointer' }}>
+            {/* Larger invisible hit area */}
+            <circle cx={pt.x} cy={pt.y} r="12" fill="transparent" />
+            {/* Glow ring on hover */}
+            {isHovered ? (
+              <circle cx={pt.x} cy={pt.y} r="8" fill="var(--primary)" opacity="0.12" />
+            ) : null}
+            {/* Dot */}
+            <circle
+              cx={pt.x}
+              cy={pt.y}
+              r={isHovered ? 5 : 3.5}
+              fill="#fff"
+              stroke="var(--primary)"
+              strokeWidth={isHovered ? 2.5 : 2}
+              style={{ transition: 'r 0.15s, stroke-width 0.15s' }}
+            />
+          </g>
+        );
+      })}
+
+      {/* X-axis labels */}
+      {data.map((d, i) => (
         <text
           key={`lbl-${d.x}`}
-          x={toSvgX(d.x)}
-          y={pad.top + h + 14}
+          x={pts[i].x}
+          y={pad.top + h + 16}
           fontSize="9"
           textAnchor="middle"
-          fill="#888"
+          fill={hoveredIdx === i ? 'var(--primary)' : '#aaa'}
+          fontWeight={hoveredIdx === i ? 700 : 500}
         >
           V{d.x}
         </text>
       ))}
+
+      {/* Floating tooltip */}
+      {hoveredIdx !== null && data[hoveredIdx]
+        ? (() => {
+            const d = data[hoveredIdx];
+            const pt = pts[hoveredIdx];
+            const tooltipW = 110;
+            const tooltipH = 38;
+            let tx = pt.x - tooltipW / 2;
+            if (tx < pad.left) tx = pad.left;
+            if (tx + tooltipW > width - pad.right) tx = width - pad.right - tooltipW;
+            const ty = pt.y - tooltipH - 12;
+            return (
+              <g className="analytics-tooltip">
+                <rect
+                  x={tx}
+                  y={ty}
+                  width={tooltipW}
+                  height={tooltipH}
+                  rx="6"
+                  fill="#1a1a2e"
+                  opacity="0.92"
+                />
+                <polygon
+                  points={`${pt.x - 5},${ty + tooltipH} ${pt.x + 5},${ty + tooltipH} ${pt.x},${ty + tooltipH + 5}`}
+                  fill="#1a1a2e"
+                  opacity="0.92"
+                />
+                <text
+                  x={tx + tooltipW / 2}
+                  y={ty + 15}
+                  textAnchor="middle"
+                  fill="#fff"
+                  fontSize="10"
+                  fontWeight="700"
+                >
+                  {d.y}% progress
+                </text>
+                <text
+                  x={tx + tooltipW / 2}
+                  y={ty + 28}
+                  textAnchor="middle"
+                  fill="rgba(255,255,255,0.6)"
+                  fontSize="8.5"
+                >
+                  {d.label.split(':')[0]}
+                </text>
+              </g>
+            );
+          })()
+        : null}
     </svg>
   );
 }
@@ -407,61 +543,196 @@ function LineChart({
 function BarChart({
   data,
   width = 400,
-  height = 140,
+  height = 180,
 }: {
   data: Array<{ x: string; y: number; label: string }>;
   width?: number;
   height?: number;
 }): JSX.Element {
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
+
   if (data.length === 0) return <p>No data.</p>;
-  const pad = { top: 12, right: 16, bottom: 28, left: 32 };
+  const pad = { top: 16, right: 20, bottom: 32, left: 36 };
   const w = width - pad.left - pad.right;
   const h = height - pad.top - pad.bottom;
   const maxY = Math.max(...data.map((d) => d.y), 1);
   const gap = w / data.length;
-  const barW = Math.max(4, gap * 0.6);
+  const barW = Math.min(Math.max(6, gap * 0.55), 32);
+  const barGradId = 'bc-grad-' + data.length;
+
+  /* Rounded y-axis tick values */
+  const yTicks: number[] = [];
+  const step = maxY <= 4 ? 1 : Math.ceil(maxY / 4);
+  for (let v = 0; v <= maxY; v += step) yTicks.push(v);
+  if (yTicks[yTicks.length - 1] < maxY) yTicks.push(Math.ceil(maxY));
+
   return (
     <svg
       viewBox={`0 0 ${width} ${height}`}
-      preserveAspectRatio="none"
-      style={{ width: '100%', height: `${height}px` }}
+      preserveAspectRatio="xMidYMid meet"
+      className="analytics-bar-chart"
       aria-label="Activity chart"
+      onMouseLeave={() => setHoveredIdx(null)}
     >
-      {[0.25, 0.5, 0.75].map((frac) => (
-        <line
-          key={frac}
-          x1={pad.left}
-          y1={pad.top + (1 - frac) * h}
-          x2={pad.left + w}
-          y2={pad.top + (1 - frac) * h}
-          stroke="rgba(0,0,0,0.06)"
-          strokeWidth="1"
-        />
-      ))}
-      {data.map((d, idx) => {
-        const barH = (d.y / maxY) * h;
-        const cx = pad.left + gap * idx + gap / 2;
+      <defs>
+        <linearGradient id={barGradId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="var(--primary)" stopOpacity="0.95" />
+          <stop offset="100%" stopColor="var(--primary)" stopOpacity="0.55" />
+        </linearGradient>
+      </defs>
+
+      {/* Horizontal grid lines */}
+      {yTicks.map((v) => {
+        const yPos = pad.top + (1 - v / maxY) * h;
         return (
-          <g key={idx}>
-            <rect
-              x={cx - barW / 2}
-              y={pad.top + h - barH}
-              width={barW}
-              height={barH}
-              fill="var(--primary)"
-              opacity="0.7"
-              rx="2"
+          <g key={v}>
+            <line
+              x1={pad.left}
+              y1={yPos}
+              x2={pad.left + w}
+              y2={yPos}
+              stroke="rgba(0,0,0,0.06)"
+              strokeWidth="1"
+              strokeDasharray={v === 0 ? 'none' : '3,3'}
+            />
+            <text
+              x={pad.left - 6}
+              y={yPos + 3.5}
+              fontSize="9"
+              textAnchor="end"
+              fill="#aaa"
+              fontWeight="500"
             >
-              <title>{d.label}</title>
-            </rect>
-            {data.length <= 8 ? (
-              <text x={cx} y={pad.top + h + 14} fontSize="8" textAnchor="middle" fill="#888">
-                {d.x.slice(5)}
-              </text>
-            ) : null}
+              {v}
+            </text>
           </g>
         );
       })}
+
+      {/* Bars */}
+      {data.map((d, idx) => {
+        const barH = (d.y / maxY) * h;
+        const cx = pad.left + gap * idx + gap / 2;
+        const isHovered = hoveredIdx === idx;
+        const barX = cx - barW / 2;
+        const barY = pad.top + h - barH;
+        return (
+          <g key={idx} onMouseEnter={() => setHoveredIdx(idx)} style={{ cursor: 'pointer' }}>
+            {/* Invisible hit area */}
+            <rect
+              x={cx - gap / 2}
+              y={pad.top}
+              width={gap}
+              height={h + pad.bottom}
+              fill="transparent"
+            />
+
+            {/* Hover background strip */}
+            {isHovered ? (
+              <rect
+                x={cx - gap / 2}
+                y={pad.top}
+                width={gap}
+                height={h}
+                fill="var(--primary)"
+                opacity="0.04"
+                rx="4"
+              />
+            ) : null}
+
+            {/* Bar */}
+            <rect
+              x={barX}
+              y={barY}
+              width={barW}
+              height={barH}
+              fill={isHovered ? 'var(--primary)' : `url(#${barGradId})`}
+              rx={Math.min(barW / 2, 4)}
+              className="analytics-bar-rect"
+              style={{ animationDelay: `${idx * 0.06}s` }}
+            />
+
+            {/* Value label on hover */}
+            {isHovered ? (
+              <text
+                x={cx}
+                y={barY - 6}
+                textAnchor="middle"
+                fontSize="10"
+                fontWeight="700"
+                fill="var(--primary)"
+              >
+                {d.y}
+              </text>
+            ) : null}
+
+            {/* X-axis labels */}
+            <text
+              x={cx}
+              y={pad.top + h + 16}
+              fontSize={data.length > 12 ? '7' : '8.5'}
+              textAnchor="middle"
+              fill={isHovered ? 'var(--primary)' : '#aaa'}
+              fontWeight={isHovered ? 700 : 500}
+            >
+              {d.x.slice(5)}
+            </text>
+          </g>
+        );
+      })}
+
+      {/* Floating tooltip */}
+      {hoveredIdx !== null && data[hoveredIdx]
+        ? (() => {
+            const d = data[hoveredIdx];
+            const cx = pad.left + gap * hoveredIdx + gap / 2;
+            const barH = (d.y / maxY) * h;
+            const barY = pad.top + h - barH;
+            const tooltipW = 120;
+            const tooltipH = 36;
+            let tx = cx - tooltipW / 2;
+            if (tx < pad.left) tx = pad.left;
+            if (tx + tooltipW > width - pad.right) tx = width - pad.right - tooltipW;
+            const ty = barY - tooltipH - 14;
+            return ty > 0 ? (
+              <g className="analytics-tooltip">
+                <rect
+                  x={tx}
+                  y={ty}
+                  width={tooltipW}
+                  height={tooltipH}
+                  rx="6"
+                  fill="#1a1a2e"
+                  opacity="0.92"
+                />
+                <polygon
+                  points={`${cx - 5},${ty + tooltipH} ${cx + 5},${ty + tooltipH} ${cx},${ty + tooltipH + 5}`}
+                  fill="#1a1a2e"
+                  opacity="0.92"
+                />
+                <text
+                  x={tx + tooltipW / 2}
+                  y={ty + 14}
+                  textAnchor="middle"
+                  fill="#fff"
+                  fontSize="10"
+                  fontWeight="700"
+                >
+                  {d.y} submission{d.y !== 1 ? 's' : ''}
+                </text>
+                <text
+                  x={tx + tooltipW / 2}
+                  y={ty + 27}
+                  textAnchor="middle"
+                  fill="rgba(255,255,255,0.6)"
+                  fontSize="8.5"
+                >
+                  {d.label.split(':')[0]}
+                </text>
+              </g>
+            ) : null;
+          })()
+        : null}
     </svg>
   );
 }
@@ -2471,21 +2742,42 @@ export function ProfessorCohortsPage(): JSX.Element {
 
   return (
     <div className="professor-page-grid">
-      <section className="placeholder-card">
-        <h2>Create Cohort</h2>
+      {/* ---- Page header ---- */}
+      <header style={{ marginBottom: '0.25rem' }}>
+        <h1 style={{ fontSize: '1.4rem', margin: 0 }}>Cohorts</h1>
+        <p style={{ color: 'var(--text-secondary)', marginTop: '0.25rem', fontSize: '0.9rem' }}>
+          Group students into cohorts with shared citation styles and deadlines
+        </p>
+      </header>
+
+      {/* ---- Create cohort ---- */}
+      <section className="placeholder-card cohort-create-card">
+        <div className="cohort-create-header">
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+            <circle cx="9" cy="7" r="4" />
+            <line x1="19" x2="19" y1="8" y2="14" />
+            <line x1="22" x2="16" y1="11" y2="11" />
+          </svg>
+          <h2 style={{ margin: 0, fontSize: '1rem' }}>Create New Cohort</h2>
+        </div>
         <form
           onSubmit={(e) => {
             void handleCreateCohort(e);
           }}
-          style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'flex-end' }}
+          className="cohort-create-form"
         >
-          <div>
-            <label
-              htmlFor="cohort-name"
-              style={{ display: 'block', fontSize: '0.8rem', marginBottom: '0.25rem' }}
-            >
-              Name
-            </label>
+          <div className="cohort-field">
+            <label htmlFor="cohort-name">Cohort Name</label>
             <input
               id="cohort-name"
               className="form-input"
@@ -2496,16 +2788,11 @@ export function ProfessorCohortsPage(): JSX.Element {
               required
             />
           </div>
-          <div>
-            <label
-              htmlFor="cohort-style"
-              style={{ display: 'block', fontSize: '0.8rem', marginBottom: '0.25rem' }}
-            >
-              Citation Style
-            </label>
+          <div className="cohort-field">
+            <label htmlFor="cohort-style">Citation Style</label>
             <select
               id="cohort-style"
-              className="form-input"
+              className="form-input cohort-select"
               value={createInput.citation_style}
               onChange={(e) =>
                 setCreateInput((prev) => ({ ...prev, citation_style: e.target.value }))
@@ -2518,18 +2805,46 @@ export function ProfessorCohortsPage(): JSX.Element {
               ))}
             </select>
           </div>
-          <button type="submit" className="btn btn-primary" disabled={creating}>
-            {creating ? 'Creating…' : 'Create Cohort'}
+          <button
+            type="submit"
+            className="btn btn-primary"
+            disabled={creating}
+            style={{ alignSelf: 'flex-end' }}
+          >
+            {creating ? 'Creating...' : 'Create Cohort'}
           </button>
         </form>
       </section>
 
+      {/* ---- Cohort list ---- */}
       {cohorts.length === 0 ? (
-        <section className="placeholder-card">
-          <p>No cohorts yet. Create your first cohort above.</p>
+        <section
+          className="placeholder-card"
+          style={{ textAlign: 'center', padding: '2.5rem 1rem' }}
+        >
+          <svg
+            width="40"
+            height="40"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="var(--text-secondary)"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{ opacity: 0.4, marginBottom: '0.75rem' }}
+          >
+            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+            <circle cx="9" cy="7" r="4" />
+            <line x1="19" x2="19" y1="8" y2="14" />
+            <line x1="22" x2="16" y1="11" y2="11" />
+          </svg>
+          <p style={{ margin: 0, fontWeight: 600 }}>No cohorts yet</p>
+          <p style={{ margin: '0.3rem 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+            Create your first cohort above to start grouping students.
+          </p>
         </section>
       ) : (
-        <section className="workspace-metrics-grid">
+        <div className="cohort-grid">
           {cohorts.map((cohort) => {
             const isExpanded = activeCohortId === cohort.id;
             const cohortEnrollments = enrollments[cohort.id] ?? [];
@@ -2539,95 +2854,141 @@ export function ProfessorCohortsPage(): JSX.Element {
             );
 
             return (
-              <article key={cohort.id} className="metric-card" style={{ gridColumn: 'span 2' }}>
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'flex-start',
-                  }}
-                >
-                  <div>
-                    <h3 style={{ margin: 0 }}>{cohort.name}</h3>
-                    <p
-                      style={{
-                        margin: '0.25rem 0 0',
-                        fontSize: '0.82rem',
-                        color: 'var(--text-secondary, #666)',
-                      }}
+              <article
+                key={cohort.id}
+                className={`cohort-card ${isExpanded ? 'cohort-card-expanded' : ''}`}
+              >
+                {/* Card header */}
+                <div className="cohort-card-top">
+                  <div className="cohort-card-icon">
+                    <svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
                     >
-                      {cohort.citation_style} · {cohort.student_count} student
-                      {cohort.student_count !== 1 ? 's' : ''} · Created{' '}
-                      {formatDateOnly(cohort.created_at)}
-                    </p>
+                      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                      <circle cx="9" cy="7" r="4" />
+                      <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                    </svg>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <h3 className="cohort-card-name">{cohort.name}</h3>
+                    <div className="cohort-card-meta">
+                      <span className="cohort-badge">{cohort.citation_style}</span>
+                      <span>
+                        {cohort.student_count} student{cohort.student_count !== 1 ? 's' : ''}
+                      </span>
+                      <span>Created {formatDateOnly(cohort.created_at)}</span>
+                    </div>
                   </div>
                   <button
                     type="button"
-                    className="btn btn-ghost"
+                    className={`btn ${isExpanded ? 'btn-primary' : 'btn-ghost'} cohort-toggle-btn`}
                     onClick={() => {
                       void handleToggleCohort(cohort.id);
                     }}
                   >
-                    {isExpanded ? 'Close ▲' : 'Manage ▼'}
+                    {isExpanded ? 'Close' : 'Manage'}
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      style={{
+                        transition: 'transform 0.2s',
+                        transform: isExpanded ? 'rotate(180deg)' : 'rotate(0)',
+                      }}
+                    >
+                      <polyline points="6 9 12 15 18 9" />
+                    </svg>
                   </button>
                 </div>
 
-                {isExpanded && (
-                  <div
-                    style={{
-                      marginTop: '1rem',
-                      borderTop: '1px solid var(--border)',
-                      paddingTop: '1rem',
-                    }}
-                  >
-                    {enrollmentsLoading[cohort.id] ? (
-                      <p>Loading enrollments…</p>
-                    ) : (
-                      <>
-                        <h4 style={{ marginTop: 0 }}>Enrolled Students</h4>
-                        {cohortEnrollments.length === 0 ? (
-                          <p style={{ fontSize: '0.85rem' }}>No students enrolled yet.</p>
-                        ) : (
-                          <table className="simple-table">
-                            <thead>
-                              <tr>
-                                <th>Name</th>
-                                <th>Email</th>
-                                <th>Enrolled</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {cohortEnrollments.map((e) => (
-                                <tr key={e.id}>
-                                  <td>{e.student_name}</td>
-                                  <td>{e.student_email}</td>
-                                  <td>{formatDateOnly(e.enrolled_at)}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        )}
+                {/* Student count bar */}
+                {cohort.student_count > 0 && !isExpanded ? (
+                  <div className="cohort-count-bar">
+                    <div className="metric-bar-track" style={{ height: '4px' }}>
+                      <div
+                        className="metric-bar-fill"
+                        style={{
+                          width: `${Math.min(100, (cohort.student_count / Math.max(...cohorts.map((c) => c.student_count), 1)) * 100)}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                ) : null}
 
-                        <div
+                {/* Expanded panel */}
+                {isExpanded ? (
+                  <div className="cohort-expand-panel">
+                    {enrollmentsLoading[cohort.id] ? (
+                      <div style={{ textAlign: 'center', padding: '1.5rem 0' }}>
+                        <span className="loading-spinner" />
+                        <p
                           style={{
-                            marginTop: '1rem',
-                            display: 'flex',
-                            gap: '0.75rem',
-                            alignItems: 'center',
-                            flexWrap: 'wrap',
+                            margin: '0.5rem 0 0',
+                            fontSize: '0.85rem',
+                            color: 'var(--text-secondary)',
                           }}
                         >
-                          <h4 style={{ margin: 0 }}>Enroll Student</h4>
-                          {availableStudents.length === 0 ? (
-                            <span
-                              style={{ fontSize: '0.85rem', color: 'var(--text-secondary, #666)' }}
-                            >
-                              All supervised students already enrolled.
-                            </span>
+                          Loading enrollments...
+                        </p>
+                      </div>
+                    ) : (
+                      <>
+                        {/* Enrolled students */}
+                        <div className="cohort-section">
+                          <div className="cohort-section-header">
+                            <h4>Enrolled Students</h4>
+                            <span className="summary-badge">{cohortEnrollments.length}</span>
+                          </div>
+                          {cohortEnrollments.length === 0 ? (
+                            <p className="cohort-empty-text">
+                              No students enrolled yet. Add students below.
+                            </p>
                           ) : (
-                            <>
+                            <div className="cohort-student-list">
+                              {cohortEnrollments.map((e) => (
+                                <div key={e.id} className="cohort-student-chip">
+                                  <span className="cohort-student-avatar">
+                                    {e.student_name.charAt(0).toUpperCase()}
+                                  </span>
+                                  <div>
+                                    <span className="cohort-student-name">{e.student_name}</span>
+                                    <span className="cohort-student-email">{e.student_email}</span>
+                                  </div>
+                                  <span className="cohort-student-date">
+                                    {formatDateOnly(e.enrolled_at)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Enroll new student */}
+                        <div className="cohort-section cohort-enroll-section">
+                          <div className="cohort-section-header">
+                            <h4>Add Student</h4>
+                          </div>
+                          {availableStudents.length === 0 ? (
+                            <p className="cohort-empty-text">
+                              All supervised students are already enrolled in this cohort.
+                            </p>
+                          ) : (
+                            <div className="cohort-enroll-row">
                               <select
-                                className="form-input"
+                                className="form-input cohort-select"
                                 value={enrollInput[cohort.id] ?? ''}
                                 onChange={(e) =>
                                   setEnrollInput((prev) => ({
@@ -2636,7 +2997,7 @@ export function ProfessorCohortsPage(): JSX.Element {
                                   }))
                                 }
                               >
-                                <option value="">Select student…</option>
+                                <option value="">Select a student...</option>
                                 {availableStudents.map((s) => (
                                   <option key={s.student_id} value={s.student_id}>
                                     {s.student_name}
@@ -2651,19 +3012,19 @@ export function ProfessorCohortsPage(): JSX.Element {
                                   void handleEnroll(cohort.id);
                                 }}
                               >
-                                {enrolling[cohort.id] ? 'Enrolling…' : 'Enroll'}
+                                {enrolling[cohort.id] ? 'Enrolling...' : 'Enroll'}
                               </button>
-                            </>
+                            </div>
                           )}
                         </div>
                       </>
                     )}
                   </div>
-                )}
+                ) : null}
               </article>
             );
           })}
-        </section>
+        </div>
       )}
     </div>
   );

@@ -1057,7 +1057,7 @@ function ProposalForm({
           <input value={title} onChange={(event) => setTitle(event.target.value)} required />
         </label>
         <label>
-          Abstract (required)
+          Abstract / Proposal (required)
           <div className="toggle-pill-group">
             <button
               type="button"
@@ -1079,7 +1079,7 @@ function ProposalForm({
               value={abstractValue}
               onChange={(event) => setAbstractValue(event.target.value)}
               rows={5}
-              placeholder="Paste your abstract..."
+              placeholder="Paste your abstract / proposal here ..."
               required
             />
           ) : (
@@ -2286,34 +2286,135 @@ export function StudentMockVivaPage(): JSX.Element {
       ) : null}
 
       {/* Voice / TTS controls */}
-      <div className="mock-viva-voice-controls">
-        <label>
-          <input
-            type="checkbox"
-            checked={voiceOutputEnabled}
-            onChange={(e) => setVoiceOutputEnabled(e.target.checked)}
-          />
-          AI voice output
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={voiceInputEnabled}
-            onChange={(e) => setVoiceInputEnabled(e.target.checked)}
-            disabled={!supportsSpeechRecognition && !supportsMediaRecorder}
-          />
-          Voice input
-        </label>
-        {voiceInputEnabled ? (
-          <label>
-            <input
-              type="checkbox"
-              checked={useAzureVoice}
-              onChange={(e) => setUseAzureVoice(e.target.checked)}
-            />
-            Use Azure AI voice
+      <div className="viva-voice-panel">
+        <div className="viva-voice-panel-header">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+            <line x1="12" x2="12" y1="19" y2="22" />
+          </svg>
+          <span>Voice Settings</span>
+          {isListening ? (
+            <span className="viva-rec-badge">
+              <span className="viva-rec-dot" />
+              REC
+            </span>
+          ) : null}
+        </div>
+
+        <div className="viva-voice-toggles">
+          {/* AI Voice Output */}
+          <label className="viva-toggle-item">
+            <div className="viva-toggle-label">
+              <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+              </svg>
+              <div>
+                <span className="viva-toggle-name">TTS Voice Output</span>
+                <span className="viva-toggle-desc">Hear AI responses spoken aloud</span>
+              </div>
+            </div>
+            <div
+              className={`viva-switch ${voiceOutputEnabled ? 'viva-switch-on' : ''}`}
+              onClick={() => setVoiceOutputEnabled(!voiceOutputEnabled)}
+              role="switch"
+              aria-checked={voiceOutputEnabled}
+            >
+              <div className="viva-switch-thumb" />
+            </div>
           </label>
-        ) : null}
+
+          {/* Voice Input */}
+          <label
+            className={`viva-toggle-item ${!supportsSpeechRecognition && !supportsMediaRecorder ? 'viva-toggle-disabled' : ''}`}
+          >
+            <div className="viva-toggle-label">
+              <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                <line x1="12" x2="12" y1="19" y2="22" />
+              </svg>
+              <div>
+                <span className="viva-toggle-name">Voice Input</span>
+                <span className="viva-toggle-desc">Speak your answers using a microphone</span>
+              </div>
+            </div>
+            <div
+              className={`viva-switch ${voiceInputEnabled ? 'viva-switch-on' : ''}`}
+              onClick={() => {
+                if (supportsSpeechRecognition || supportsMediaRecorder)
+                  setVoiceInputEnabled(!voiceInputEnabled);
+              }}
+              role="switch"
+              aria-checked={voiceInputEnabled}
+            >
+              <div className="viva-switch-thumb" />
+            </div>
+          </label>
+
+          {/* Azure AI Voice */}
+          {voiceInputEnabled || voiceOutputEnabled ? (
+            <label className="viva-toggle-item viva-toggle-azure">
+              <div className="viva-toggle-label">
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" />
+                </svg>
+                <div>
+                  <span className="viva-toggle-name">
+                    Azure AI Voice<span className="viva-azure-badge">Enhanced</span>
+                  </span>
+                  <span className="viva-toggle-desc">Higher quality neural voice via Azure</span>
+                </div>
+              </div>
+              <div
+                className={`viva-switch ${useAzureVoice ? 'viva-switch-on' : ''}`}
+                onClick={() => setUseAzureVoice(!useAzureVoice)}
+                role="switch"
+                aria-checked={useAzureVoice}
+              >
+                <div className="viva-switch-thumb" />
+              </div>
+            </label>
+          ) : null}
+        </div>
       </div>
 
       {error ? <p className="form-error">{error}</p> : null}
@@ -2578,11 +2679,25 @@ export function StudentMockVivaPage(): JSX.Element {
             {voiceInputEnabled ? (
               <button
                 type="button"
-                className={`btn ${isListening ? 'btn-primary' : 'btn-ghost'}`}
+                className={`btn viva-mic-btn ${isListening ? 'viva-mic-btn-active' : 'btn-ghost'}`}
                 onClick={toggleListening}
                 disabled={loading}
               >
-                {isListening ? 'Stop Recording' : 'Use Mic'}
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                  <line x1="12" x2="12" y1="19" y2="22" />
+                </svg>
+                {isListening ? 'Stop' : 'Mic'}
               </button>
             ) : null}
             <button
