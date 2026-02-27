@@ -16,16 +16,18 @@ export class AzureOpenAiService {
   constructor() {
     const endpoint = process.env.AZURE_OPENAI_ENDPOINT;
     const apiKey = process.env.AZURE_OPENAI_KEY;
-    this.deployment = process.env.AZURE_OPENAI_DEPLOYMENT ?? 'gpt-4o';
+    const deploymentEnv = process.env.AZURE_OPENAI_DEPLOYMENT;
+    const resolved = this.resolveAzureOpenAiConfig(endpoint, deploymentEnv);
+    this.deployment = resolved.deployment ?? 'gpt-4o';
 
-    if (endpoint && apiKey) {
+    if (resolved.baseURL && apiKey) {
       this.client = new OpenAI({
         apiKey,
-        baseURL: `${endpoint.replace(/\/$/, '')}/openai/deployments/${this.deployment}`,
-        defaultQuery: { 'api-version': '2024-02-01' },
-        defaultHeaders: { 'api-key': apiKey },
+        baseURL: resolved.baseURL,
       });
-      this.logger.log('Azure OpenAI client initialized.');
+      this.logger.log(
+        `Azure OpenAI client initialized (baseURL: ${resolved.baseURL}, deployment: ${this.deployment}).`,
+      );
     } else {
       this.logger.warn(
         'Azure OpenAI not configured — coaching/analysis will use heuristic fallback.',
@@ -38,18 +40,70 @@ export class AzureOpenAiService {
   }
 
   async chat(messages: ChatMessage[], maxTokens = 1000): Promise<string | null> {
+    console.dir(messages, { depth: null, maxArrayLength: null });
     if (!this.client) return null;
     try {
       const response = await this.client.chat.completions.create({
         model: this.deployment,
         messages,
-        max_tokens: maxTokens,
         temperature: 0.7,
+        max_tokens: maxTokens,
       });
       return response.choices[0]?.message?.content ?? null;
     } catch (err) {
       this.logger.error('Azure OpenAI chat error', err);
       return null;
+    }
+  }
+
+  private resolveAzureOpenAiConfig(
+    endpointRaw?: string,
+    deploymentRaw?: string,
+  ): { baseURL: string | null; deployment: string | null } {
+    const endpoint = endpointRaw?.trim();
+    const deploymentFromEnv = deploymentRaw?.trim() || null;
+    if (!endpoint) {
+      return { baseURL: null, deployment: deploymentFromEnv };
+    }
+
+    // Support either:
+    // 1) resource endpoint host (https://<resource>.<domain>/)
+    // 2) OpenAI v1 endpoint (https://<resource>.<domain>/openai/v1/)
+    // 3) full deployment URL copied from portal docs
+    //    (.../openai/deployments/<deployment>/chat/completions?api-version=...)
+    try {
+      const parsed = new URL(endpoint);
+      const pathname = parsed.pathname || '/';
+
+      const deploymentFromPathMatch = pathname.match(/\/openai\/deployments\/([^/]+)/i);
+      const deploymentFromPath = deploymentFromPathMatch?.[1]
+        ? decodeURIComponent(deploymentFromPathMatch[1])
+        : null;
+
+      if (pathname.includes('/openai/v1')) {
+        const openAiV1Base = `${parsed.origin}/openai/v1/`;
+        return {
+          baseURL: openAiV1Base,
+          deployment: deploymentFromEnv ?? deploymentFromPath,
+        };
+      }
+
+      if (pathname.includes('/openai/deployments/')) {
+        return {
+          baseURL: `${parsed.origin}/openai/v1/`,
+          deployment: deploymentFromEnv ?? deploymentFromPath,
+        };
+      }
+
+      return {
+        baseURL: `${parsed.origin}/openai/v1/`,
+        deployment: deploymentFromEnv ?? deploymentFromPath,
+      };
+    } catch {
+      return {
+        baseURL: endpoint,
+        deployment: deploymentFromEnv,
+      };
     }
   }
 
@@ -148,9 +202,12 @@ Return ONLY valid JSON with these exact fields:
     const learnerProfile = opts.learnerProfile ?? 'standard';
 
     const modeDesc = {
-      mock_viva: `${count} challenging viva voce examination questions an examiner panel would ask about this specific thesis`,
-      argument_defender: `${count} specific claims or arguments from this thesis that the student must defend against a critical reviewer`,
-      socratic: `${count} Socratic guiding questions that help the student think deeper about their specific thesis without giving answers`,
+      mock_viva:
+        'challenging viva voce examination questions an examiner panel would ask about this specific thesis',
+      argument_defender:
+        'specific claims or arguments from this thesis that the student must defend against a critical reviewer',
+      socratic:
+        'Socratic guiding questions that help the student think deeper about their specific thesis without giving answers',
     }[opts.mode];
 
     const profileInstructions: Record<string, string> = {
