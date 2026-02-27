@@ -261,30 +261,31 @@ export class ThesesService {
       activeSubmission?.extractedText ?? '',
     );
 
-    const centralPanel = !showVersionComparison
-      ? {
-          mode: 'first_submission',
-          abstract_alignment: {
-            verdict: analysis?.abstractAlignmentVerdict ?? 'insufficient_data',
-            key_topic_coverage: analysis?.keyTopicCoverage ?? [],
-            missing_core_sections: analysis?.missingCoreSections ?? [],
-            structural_readiness: analysis?.structuralReadiness ?? 'developing',
-          },
-        }
-      : {
-          mode: 'version_comparison',
-          version_comparison: {
-            additions: analysis?.additionsCount ?? 0,
-            deletions: analysis?.deletionsCount ?? 0,
-            major_edits: analysis?.majorEditsCount ?? 0,
-            gaps_resolved: analysis?.gapsResolved ?? 0,
-            gaps_open: analysis?.gapsOpen ?? 0,
-            previous_excerpt: analysis?.previousExcerpt ?? '',
-            current_excerpt: analysis?.currentExcerpt ?? '',
-            pr_diff: prDiff,
-            pdf_view: pdfView,
-          },
-        };
+    const centralPanel = {
+      mode: showVersionComparison ? ('version_comparison' as const) : ('first_submission' as const),
+      // Always include abstract alignment so every new version is checked against proposal/abstract.
+      abstract_alignment: {
+        verdict: analysis?.abstractAlignmentVerdict ?? 'insufficient_data',
+        key_topic_coverage: analysis?.keyTopicCoverage ?? [],
+        missing_core_sections: analysis?.missingCoreSections ?? [],
+        structural_readiness: analysis?.structuralReadiness ?? 'developing',
+      },
+      ...(showVersionComparison
+        ? {
+            version_comparison: {
+              additions: analysis?.additionsCount ?? 0,
+              deletions: analysis?.deletionsCount ?? 0,
+              major_edits: analysis?.majorEditsCount ?? 0,
+              gaps_resolved: analysis?.gapsResolved ?? 0,
+              gaps_open: analysis?.gapsOpen ?? 0,
+              previous_excerpt: analysis?.previousExcerpt ?? '',
+              current_excerpt: analysis?.currentExcerpt ?? '',
+              pr_diff: prDiff,
+              pdf_view: pdfView,
+            },
+          }
+        : {}),
+    };
 
     return {
       thesis: {

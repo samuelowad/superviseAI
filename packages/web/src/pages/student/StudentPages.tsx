@@ -579,7 +579,7 @@ function CentralPanel({ workspace }: { workspace: WorkspaceResponse }): JSX.Elem
             Verdict:{' '}
             <span
               className={`status-pill ${
-                workspace.central_panel.abstract_alignment?.verdict === 'aligned'
+                workspace.central_panel.abstract_alignment?.verdict === 'on_track'
                   ? 'success'
                   : workspace.central_panel.abstract_alignment?.verdict === 'partially_aligned'
                     ? 'warning'
@@ -631,10 +631,9 @@ function CentralPanel({ workspace }: { workspace: WorkspaceResponse }): JSX.Elem
             Structural readiness:{' '}
             <span
               className={`status-pill ${
-                workspace.central_panel.abstract_alignment?.structural_readiness === 'ready'
+                workspace.central_panel.abstract_alignment?.structural_readiness === 'strong'
                   ? 'success'
-                  : workspace.central_panel.abstract_alignment?.structural_readiness ===
-                      'developing'
+                  : workspace.central_panel.abstract_alignment?.structural_readiness === 'moderate'
                     ? 'warning'
                     : 'info'
               }`}
@@ -645,6 +644,74 @@ function CentralPanel({ workspace }: { workspace: WorkspaceResponse }): JSX.Elem
         </>
       ) : (
         <>
+          <h3>Abstract Alignment Analysis</h3>
+          <p style={{ marginBottom: '0.75rem' }}>
+            Verdict:{' '}
+            <span
+              className={`status-pill ${
+                workspace.central_panel.abstract_alignment?.verdict === 'on_track'
+                  ? 'success'
+                  : workspace.central_panel.abstract_alignment?.verdict === 'partially_aligned'
+                    ? 'warning'
+                    : 'info'
+              }`}
+            >
+              {(workspace.central_panel.abstract_alignment?.verdict ?? 'insufficient data').replace(
+                /_/g,
+                ' ',
+              )}
+            </span>
+          </p>
+          <div className="grid-two-columns">
+            <div>
+              <h4>Key Topic Coverage</h4>
+              {(workspace.central_panel.abstract_alignment?.key_topic_coverage ?? []).length > 0 ? (
+                <ul>
+                  {(workspace.central_panel.abstract_alignment?.key_topic_coverage ?? []).map(
+                    (item) => (
+                      <li key={item}>{item}</li>
+                    ),
+                  )}
+                </ul>
+              ) : (
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                  No topics identified yet.
+                </p>
+              )}
+            </div>
+            <div>
+              <h4>Missing Core Sections</h4>
+              {(workspace.central_panel.abstract_alignment?.missing_core_sections ?? []).length >
+              0 ? (
+                <ul>
+                  {(workspace.central_panel.abstract_alignment?.missing_core_sections ?? []).map(
+                    (item) => (
+                      <li key={item}>{item}</li>
+                    ),
+                  )}
+                </ul>
+              ) : (
+                <p style={{ fontSize: '0.85rem', color: 'var(--success)' }}>
+                  No missing sections detected.
+                </p>
+              )}
+            </div>
+          </div>
+          <p>
+            Structural readiness:{' '}
+            <span
+              className={`status-pill ${
+                workspace.central_panel.abstract_alignment?.structural_readiness === 'strong'
+                  ? 'success'
+                  : workspace.central_panel.abstract_alignment?.structural_readiness === 'moderate'
+                    ? 'warning'
+                    : 'info'
+              }`}
+            >
+              {workspace.central_panel.abstract_alignment?.structural_readiness ?? 'developing'}
+            </span>
+          </p>
+
           <h3>Version Comparison</h3>
           <div className="comparison-summary-grid">
             <div>
