@@ -632,8 +632,9 @@ function ResizableSplitView({
 
 function LoadingCard({ message }: { message: string }): JSX.Element {
   return (
-    <section className="placeholder-card">
-      <h2>{message}</h2>
+    <section className="placeholder-card" style={{ textAlign: 'center', padding: '3rem' }}>
+      <div className="spinner" role="status" aria-label={message} />
+      <p style={{ marginTop: '0.75rem' }}>{message}</p>
     </section>
   );
 }
@@ -641,7 +642,7 @@ function LoadingCard({ message }: { message: string }): JSX.Element {
 function ErrorCard({ message }: { message: string }): JSX.Element {
   return (
     <section className="placeholder-card">
-      <h2>Something went wrong</h2>
+      <h2 style={{ color: 'var(--risk, #dc2626)' }}>Something went wrong</h2>
       <p>{message}</p>
     </section>
   );
@@ -702,17 +703,55 @@ export function ProfessorDashboardPage(): JSX.Element {
         <article className="metric-card">
           <h3>Active Theses</h3>
           <p className="metric-value">{data.summary.active_theses}</p>
-          <p>Not marked complete</p>
+          <div className="metric-bar-track">
+            <div
+              className="metric-bar-fill"
+              style={{
+                width: data.summary.total_students
+                  ? `${(data.summary.active_theses / data.summary.total_students) * 100}%`
+                  : '0%',
+              }}
+            />
+          </div>
+          <p>{data.summary.total_students - data.summary.active_theses} completed</p>
         </article>
         <article className="metric-card">
           <h3>Awaiting Review</h3>
-          <p className="metric-value">{data.summary.awaiting_review}</p>
-          <p>Need your decision</p>
+          <p
+            className="metric-value"
+            style={{
+              color: data.summary.awaiting_review > 0 ? '#d97706' : undefined,
+            }}
+          >
+            {data.summary.awaiting_review}
+          </p>
+          <p
+            style={{
+              fontWeight: data.summary.awaiting_review > 0 ? 700 : undefined,
+              color: data.summary.awaiting_review > 0 ? '#d97706' : undefined,
+            }}
+          >
+            {data.summary.awaiting_review > 0 ? 'Need your decision' : 'All reviewed'}
+          </p>
         </article>
         <article className="metric-card">
           <h3>At-Risk</h3>
-          <p className="metric-value">{data.summary.at_risk_count}</p>
-          <p>Needs intervention</p>
+          <p
+            className="metric-value"
+            style={{
+              color: data.summary.at_risk_count > 0 ? 'var(--risk, #dc2626)' : 'var(--success)',
+            }}
+          >
+            {data.summary.at_risk_count}
+          </p>
+          <p
+            style={{
+              fontWeight: data.summary.at_risk_count > 0 ? 700 : undefined,
+              color: data.summary.at_risk_count > 0 ? 'var(--risk, #dc2626)' : undefined,
+            }}
+          >
+            {data.summary.at_risk_count > 0 ? 'Needs intervention' : 'All on track'}
+          </p>
         </article>
       </section>
 
@@ -746,18 +785,43 @@ export function ProfessorDashboardPage(): JSX.Element {
                   <td>
                     <strong>{student.student_name}</strong>
                     <br />
-                    <small>{student.student_email ?? 'No email'}</small>
-                  </td>
-                  <td>{student.thesis_title}</td>
-                  <td>
-                    {student.progress_score}%{' '}
-                    <small className={student.trend_delta >= 0 ? 'trend-up' : 'trend-down'}>
-                      {student.trend_delta >= 0 ? '+' : ''}
-                      {student.trend_delta}
+                    <small style={{ color: 'var(--text-secondary)' }}>
+                      {student.student_email ?? 'No email'}
                     </small>
                   </td>
-                  <td>{student.plagiarism_similarity}%</td>
-                  <td>{formatDate(student.last_submission_at)}</td>
+                  <td
+                    style={{
+                      maxWidth: 220,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {student.thesis_title}
+                  </td>
+                  <td>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      <span>{student.progress_score}%</span>
+                      <span
+                        className={student.trend_delta >= 0 ? 'trend-up' : 'trend-down'}
+                        style={{ fontSize: '0.78rem' }}
+                      >
+                        {student.trend_delta >= 0 ? '+' : ''}
+                        {student.trend_delta}
+                      </span>
+                    </div>
+                    <div className="metric-bar-track" style={{ marginTop: '0.25rem' }}>
+                      <div
+                        className="metric-bar-fill"
+                        style={{ width: `${student.progress_score}%` }}
+                      />
+                    </div>
+                  </td>
+                  <td>
+                    <span className={`risk-dot ${riskClass(student.risk_level)}`} />
+                    {student.plagiarism_similarity}%
+                  </td>
+                  <td style={{ fontSize: '0.82rem' }}>{formatDate(student.last_submission_at)}</td>
                   <td>
                     <span className={`status-pill ${statusTone(student.thesis_status_label)}`}>
                       {student.thesis_status_label}
@@ -765,7 +829,18 @@ export function ProfessorDashboardPage(): JSX.Element {
                   </td>
                   <td>
                     <span className={`risk-dot ${riskClass(student.risk_level)}`} />
-                    {student.risk_level.toUpperCase()}
+                    <strong
+                      style={{
+                        color:
+                          student.risk_level === 'red'
+                            ? 'var(--risk, #dc2626)'
+                            : student.risk_level === 'yellow'
+                              ? '#d97706'
+                              : 'var(--success)',
+                      }}
+                    >
+                      {student.risk_level.toUpperCase()}
+                    </strong>
                   </td>
                   <td>
                     <Link className="btn btn-muted" to={`/professor/student/${student.thesis_id}`}>
@@ -879,24 +954,62 @@ export function ProfessorStudentsPage(): JSX.Element {
                   <td>
                     <strong>{student.student_name}</strong>
                     <br />
-                    <small>{student.student_email ?? 'No email'}</small>
+                    <small style={{ color: 'var(--text-secondary)' }}>
+                      {student.student_email ?? 'No email'}
+                    </small>
                   </td>
-                  <td>{student.thesis_title}</td>
+                  <td
+                    style={{
+                      maxWidth: 220,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {student.thesis_title}
+                  </td>
                   <td>
                     <span className={`status-pill ${statusTone(student.thesis_status_label)}`}>
                       {student.thesis_status_label}
                     </span>
                   </td>
-                  <td>{student.progress_score}%</td>
+                  <td>
+                    <div>{student.progress_score}%</div>
+                    <div className="metric-bar-track" style={{ marginTop: '0.25rem' }}>
+                      <div
+                        className="metric-bar-fill"
+                        style={{ width: `${student.progress_score}%` }}
+                      />
+                    </div>
+                  </td>
                   <td className={student.trend_delta >= 0 ? 'trend-up' : 'trend-down'}>
                     {student.trend_delta >= 0 ? '+' : ''}
                     {student.trend_delta}
                   </td>
                   <td>
                     <span className={`risk-dot ${riskClass(student.risk_level)}`} />
-                    {student.risk_level.toUpperCase()}
+                    <strong
+                      style={{
+                        color:
+                          student.risk_level === 'red'
+                            ? 'var(--risk, #dc2626)'
+                            : student.risk_level === 'yellow'
+                              ? '#d97706'
+                              : 'var(--success)',
+                      }}
+                    >
+                      {student.risk_level.toUpperCase()}
+                    </strong>
                   </td>
-                  <td>{student.risk_reasons.join(', ') || 'Stable'}</td>
+                  <td style={{ fontSize: '0.82rem' }}>
+                    {student.risk_reasons.length > 0 ? (
+                      <span style={{ color: 'var(--risk, #dc2626)' }}>
+                        {student.risk_reasons.join(', ')}
+                      </span>
+                    ) : (
+                      <span style={{ color: 'var(--success)' }}>Stable</span>
+                    )}
+                  </td>
                   <td>
                     <Link className="btn btn-muted" to={`/professor/student/${student.thesis_id}`}>
                       Open
@@ -1223,10 +1336,40 @@ export function ProfessorMilestonesPage(): JSX.Element {
                       />
                     </td>
                     <td>
-                      {milestone.completion.completed_students}/
-                      {milestone.completion.total_students} complete
+                      <div style={{ fontSize: '0.82rem' }}>
+                        {milestone.completion.completed_students}/
+                        {milestone.completion.total_students}
+                      </div>
+                      {milestone.completion.total_students > 0 ? (
+                        <div className="metric-bar-track" style={{ marginTop: '0.25rem' }}>
+                          <div
+                            className="metric-bar-fill"
+                            style={{
+                              width: `${(milestone.completion.completed_students / milestone.completion.total_students) * 100}%`,
+                              background:
+                                milestone.completion.completed_students ===
+                                milestone.completion.total_students
+                                  ? 'var(--success)'
+                                  : 'var(--primary)',
+                            }}
+                          />
+                        </div>
+                      ) : null}
                     </td>
-                    <td>
+                    <td
+                      style={{
+                        color:
+                          milestone.due_in_days !== null && milestone.due_in_days < 0
+                            ? 'var(--risk, #dc2626)'
+                            : milestone.due_in_days !== null && milestone.due_in_days < 3
+                              ? '#d97706'
+                              : undefined,
+                        fontWeight:
+                          milestone.due_in_days !== null && milestone.due_in_days < 3
+                            ? 700
+                            : undefined,
+                      }}
+                    >
                       {milestone.due_in_days === null
                         ? 'N/A'
                         : milestone.due_in_days < 0
@@ -1301,92 +1444,383 @@ export function ProfessorAnalyticsPage(): JSX.Element {
     return <ErrorCard message={error ?? 'Analytics unavailable.'} />;
   }
 
+  /* ---- derived stats ---- */
+  const totalSubmissions = data.submission_activity.reduce((s, e) => s + e.submissions, 0);
+  const peakDay =
+    data.submission_activity.length > 0
+      ? data.submission_activity.reduce((best, e) => (e.submissions > best.submissions ? e : best))
+      : null;
+  const latestProgress =
+    data.progress_trend.length > 0 ? data.progress_trend[data.progress_trend.length - 1] : null;
+  const earliestProgress = data.progress_trend.length > 1 ? data.progress_trend[0] : null;
+  const progressDelta =
+    latestProgress && earliestProgress
+      ? latestProgress.average_progress - earliestProgress.average_progress
+      : null;
+
+  /* risk percentages */
+  const total = data.totals.supervised_students || 1;
+  const greenPct = Math.round((data.risk_distribution.green / total) * 100);
+  const yellowPct = Math.round((data.risk_distribution.yellow / total) * 100);
+  const redPct = Math.round((data.risk_distribution.red / total) * 100);
+
   return (
     <div className="professor-page-grid">
+      {/* ---- Page header ---- */}
+      <header style={{ marginBottom: '0.25rem' }}>
+        <h1 style={{ fontSize: '1.4rem', margin: 0 }}>Analytics Overview</h1>
+        <p
+          style={{ color: 'var(--text-secondary, #666)', marginTop: '0.25rem', fontSize: '0.9rem' }}
+        >
+          Aggregated insights across all supervised students
+        </p>
+      </header>
+
+      {/* ---- Summary metrics ---- */}
       <section className="workspace-metrics-grid">
         <article className="metric-card metric-primary">
-          <h3>Supervised Students</h3>
+          <h3>Students</h3>
           <p className="metric-value">{data.totals.supervised_students}</p>
+          <p>Under supervision</p>
         </article>
         <article className="metric-card">
           <h3>Avg Progress</h3>
           <p className="metric-value">{data.totals.average_progress_score}%</p>
+          <div className="metric-bar-track">
+            <div
+              className="metric-bar-fill"
+              style={{ width: `${data.totals.average_progress_score}%` }}
+            />
+          </div>
+          {progressDelta !== null ? (
+            <p
+              style={{
+                color: progressDelta >= 0 ? 'var(--success, #0f9d58)' : 'var(--risk, #dc2626)',
+                fontWeight: 600,
+                fontSize: '0.82rem',
+              }}
+            >
+              {progressDelta >= 0 ? '+' : ''}
+              {progressDelta}% over period
+            </p>
+          ) : (
+            <p>Across all students</p>
+          )}
         </article>
         <article className="metric-card">
-          <h3>At-Risk Students</h3>
-          <p className="metric-value">{data.totals.at_risk_count}</p>
-        </article>
-        <article className="metric-card">
-          <h3>Risk Split</h3>
-          <p className="metric-value small">
-            G:{data.risk_distribution.green} Y:{data.risk_distribution.yellow} R:
-            {data.risk_distribution.red}
+          <h3>At Risk</h3>
+          <p
+            className="metric-value"
+            style={{
+              color: data.totals.at_risk_count > 0 ? 'var(--risk, #dc2626)' : 'var(--success)',
+            }}
+          >
+            {data.totals.at_risk_count}
+          </p>
+          <p
+            style={{
+              fontWeight: data.totals.at_risk_count > 0 ? 700 : undefined,
+              color: data.totals.at_risk_count > 0 ? 'var(--risk, #dc2626)' : undefined,
+            }}
+          >
+            {data.totals.at_risk_count > 0
+              ? `${Math.round((data.totals.at_risk_count / total) * 100)}% of cohort`
+              : 'All on track'}
           </p>
         </article>
+        <article className="metric-card">
+          <h3>Total Submissions</h3>
+          <p className="metric-value">{totalSubmissions}</p>
+          {peakDay ? (
+            <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary, #666)' }}>
+              Peak: {peakDay.submissions} on {formatDateOnly(peakDay.date)}
+            </p>
+          ) : (
+            <p>No submissions yet</p>
+          )}
+        </article>
       </section>
 
+      {/* ---- Risk distribution breakdown ---- */}
       <section className="placeholder-card">
-        <h2>Progress Trend</h2>
-        {data.progress_trend.length === 0 ? (
-          <p>No trend data yet.</p>
-        ) : (
-          <LineChart
-            data={data.progress_trend.map((entry, idx) => ({
-              x: idx + 1,
-              y: entry.average_progress,
-              label: `${formatDateOnly(entry.date)}: ${entry.average_progress}% (${entry.samples} samples)`,
-            }))}
-          />
-        )}
+        <h2 style={{ marginBottom: '0.5rem' }}>Risk Distribution</h2>
+        <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
+              <span className="risk-dot risk-green" />
+              <strong>{data.risk_distribution.green}</strong>
+              <span style={{ color: 'var(--text-secondary, #666)', fontSize: '0.82rem' }}>
+                On Track ({greenPct}%)
+              </span>
+            </span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
+              <span className="risk-dot risk-yellow" />
+              <strong>{data.risk_distribution.yellow}</strong>
+              <span style={{ color: 'var(--text-secondary, #666)', fontSize: '0.82rem' }}>
+                Warning ({yellowPct}%)
+              </span>
+            </span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
+              <span className="risk-dot risk-red" />
+              <strong>{data.risk_distribution.red}</strong>
+              <span style={{ color: 'var(--text-secondary, #666)', fontSize: '0.82rem' }}>
+                At Risk ({redPct}%)
+              </span>
+            </span>
+          </div>
+          {data.totals.supervised_students > 0 ? (
+            <div style={{ flex: 1, minWidth: '200px' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  height: 10,
+                  borderRadius: 999,
+                  overflow: 'hidden',
+                }}
+              >
+                <div
+                  style={{
+                    width: `${greenPct}%`,
+                    background: '#0f9d58',
+                    transition: 'width 0.4s',
+                  }}
+                />
+                <div
+                  style={{
+                    width: `${yellowPct}%`,
+                    background: '#f59e0b',
+                    transition: 'width 0.4s',
+                  }}
+                />
+                <div
+                  style={{
+                    width: `${redPct}%`,
+                    background: '#dc2626',
+                    transition: 'width 0.4s',
+                  }}
+                />
+              </div>
+            </div>
+          ) : null}
+        </div>
       </section>
 
-      <section className="placeholder-card">
-        <h2>Submission Activity</h2>
-        {data.submission_activity.length === 0 ? (
-          <p>No submission activity yet.</p>
-        ) : (
-          <BarChart
-            data={data.submission_activity.map((entry) => ({
-              x: entry.date,
-              y: entry.submissions,
-              label: `${formatDateOnly(entry.date)}: ${entry.submissions} submissions`,
-            }))}
-          />
-        )}
-      </section>
+      {/* ---- Charts side-by-side ---- */}
+      <div className="analytics-chart-row">
+        <section className="placeholder-card" style={{ flex: 1, minWidth: 0 }}>
+          <h2 style={{ marginBottom: '0.15rem' }}>Progress Trend</h2>
+          <p
+            style={{
+              color: 'var(--text-secondary, #666)',
+              fontSize: '0.82rem',
+              marginBottom: '0.75rem',
+            }}
+          >
+            Average progress score over time
+          </p>
+          {data.progress_trend.length === 0 ? (
+            <p
+              style={{
+                color: 'var(--text-secondary, #666)',
+                padding: '2rem 0',
+                textAlign: 'center',
+              }}
+            >
+              Not enough data to show a trend yet. Progress will appear after multiple submissions.
+            </p>
+          ) : (
+            <>
+              <LineChart
+                data={data.progress_trend.map((entry, idx) => ({
+                  x: idx + 1,
+                  y: entry.average_progress,
+                  label: `${formatDateOnly(entry.date)}: ${entry.average_progress}% (${entry.samples} samples)`,
+                }))}
+                height={180}
+              />
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  fontSize: '0.78rem',
+                  color: 'var(--text-secondary, #666)',
+                  marginTop: '0.5rem',
+                  padding: '0 0.25rem',
+                }}
+              >
+                <span>{data.progress_trend.length} data points</span>
+                {latestProgress ? (
+                  <span>
+                    Latest:{' '}
+                    <strong style={{ color: 'var(--text-primary, #222)' }}>
+                      {latestProgress.average_progress}%
+                    </strong>
+                  </span>
+                ) : null}
+              </div>
+            </>
+          )}
+        </section>
 
+        <section className="placeholder-card" style={{ flex: 1, minWidth: 0 }}>
+          <h2 style={{ marginBottom: '0.15rem' }}>Submission Activity</h2>
+          <p
+            style={{
+              color: 'var(--text-secondary, #666)',
+              fontSize: '0.82rem',
+              marginBottom: '0.75rem',
+            }}
+          >
+            Number of submissions per day
+          </p>
+          {data.submission_activity.length === 0 ? (
+            <p
+              style={{
+                color: 'var(--text-secondary, #666)',
+                padding: '2rem 0',
+                textAlign: 'center',
+              }}
+            >
+              No submission activity recorded yet. Data will appear as students submit drafts.
+            </p>
+          ) : (
+            <>
+              <BarChart
+                data={data.submission_activity.map((entry) => ({
+                  x: entry.date,
+                  y: entry.submissions,
+                  label: `${formatDateOnly(entry.date)}: ${entry.submissions} submissions`,
+                }))}
+                height={180}
+              />
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  fontSize: '0.78rem',
+                  color: 'var(--text-secondary, #666)',
+                  marginTop: '0.5rem',
+                  padding: '0 0.25rem',
+                }}
+              >
+                <span>{totalSubmissions} total submissions</span>
+                {peakDay ? (
+                  <span>
+                    Peak:{' '}
+                    <strong style={{ color: 'var(--text-primary, #222)' }}>
+                      {peakDay.submissions}
+                    </strong>{' '}
+                    on {formatDateOnly(peakDay.date)}
+                  </span>
+                ) : null}
+              </div>
+            </>
+          )}
+        </section>
+      </div>
+
+      {/* ---- At-risk students table ---- */}
       <section className="placeholder-card">
-        <h2>At-Risk Students</h2>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'baseline',
+            marginBottom: '0.5rem',
+          }}
+        >
+          <h2 style={{ margin: 0 }}>At-Risk Students</h2>
+          {data.at_risk_students.length > 0 ? (
+            <span className="summary-badge danger">{data.at_risk_students.length}</span>
+          ) : null}
+        </div>
         {data.at_risk_students.length === 0 ? (
-          <p>No at-risk students right now.</p>
+          <div style={{ padding: '2rem 0', textAlign: 'center' }}>
+            <p
+              style={{ color: 'var(--success, #0f9d58)', fontWeight: 600, marginBottom: '0.25rem' }}
+            >
+              No at-risk students
+            </p>
+            <p style={{ color: 'var(--text-secondary, #666)', fontSize: '0.85rem' }}>
+              All students are progressing within normal parameters.
+            </p>
+          </div>
         ) : (
           <table className="simple-table">
             <thead>
               <tr>
                 <th>Student</th>
                 <th>Thesis</th>
-                <th>Risk</th>
+                <th>Risk Level</th>
                 <th>Reasons</th>
-                <th>Action</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
-              {data.at_risk_students.map((student) => (
-                <tr key={student.thesis_id}>
-                  <td>{student.student_name}</td>
-                  <td>{student.thesis_title}</td>
-                  <td>
-                    <span className={`risk-dot ${riskClass(student.risk_level)}`} />
-                    {student.risk_level.toUpperCase()}
-                  </td>
-                  <td>{student.risk_reasons.join(', ')}</td>
-                  <td>
-                    <Link className="btn btn-muted" to={`/professor/student/${student.thesis_id}`}>
-                      Review
-                    </Link>
-                  </td>
-                </tr>
-              ))}
+              {data.at_risk_students.map((student) => {
+                const isRed = student.risk_level === 'red';
+                return (
+                  <tr
+                    key={student.thesis_id}
+                    style={{ background: isRed ? 'rgba(220,38,38,0.04)' : undefined }}
+                  >
+                    <td style={{ fontWeight: 600 }}>{student.student_name}</td>
+                    <td
+                      style={{
+                        maxWidth: '220px',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {student.thesis_title}
+                    </td>
+                    <td>
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '0.35rem',
+                          fontWeight: 600,
+                          fontSize: '0.82rem',
+                          color: isRed ? '#dc2626' : '#f59e0b',
+                        }}
+                      >
+                        <span className={`risk-dot ${riskClass(student.risk_level)}`} />
+                        {student.risk_level.toUpperCase()}
+                      </span>
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
+                        {student.risk_reasons.map((reason, i) => (
+                          <span
+                            key={i}
+                            style={{
+                              display: 'inline-block',
+                              padding: '0.15rem 0.5rem',
+                              borderRadius: '999px',
+                              fontSize: '0.75rem',
+                              fontWeight: 500,
+                              background: isRed ? 'rgba(220,38,38,0.08)' : 'rgba(245,158,11,0.1)',
+                              color: isRed ? '#dc2626' : '#b45309',
+                            }}
+                          >
+                            {reason}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                    <td>
+                      <Link
+                        className="btn btn-muted"
+                        to={`/professor/student/${student.thesis_id}`}
+                      >
+                        Review
+                      </Link>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
@@ -1521,6 +1955,12 @@ export function ProfessorStudentDetailPage({ thesisId }: { thesisId: string }): 
         <article className="metric-card metric-primary">
           <h3>Progress</h3>
           <p className="metric-value">{detail.metrics.progress_score}%</p>
+          <div className="metric-bar-track">
+            <div
+              className="metric-bar-fill"
+              style={{ width: `${detail.metrics.progress_score}%` }}
+            />
+          </div>
           <p className={detail.metrics.trend_delta >= 0 ? 'trend-up' : 'trend-down'}>
             {detail.metrics.trend_delta >= 0 ? '+' : ''}
             {detail.metrics.trend_delta} vs previous
@@ -1529,16 +1969,72 @@ export function ProfessorStudentDetailPage({ thesisId }: { thesisId: string }): 
         <article className="metric-card">
           <h3>Citation Health</h3>
           <p className="metric-value">{detail.metrics.citation_health_score}%</p>
-          <p>{detail.reports.citations.issues_count} issues detected</p>
+          <div className="metric-bar-track">
+            <div
+              className="metric-bar-fill"
+              style={{
+                width: `${detail.metrics.citation_health_score}%`,
+                background:
+                  detail.metrics.citation_health_score >= 80
+                    ? 'var(--success)'
+                    : detail.metrics.citation_health_score >= 50
+                      ? '#d97706'
+                      : 'var(--risk, #dc2626)',
+              }}
+            />
+          </div>
+          <p>
+            {detail.reports.citations.issues_count > 0 ? (
+              <strong style={{ color: '#d97706' }}>{detail.reports.citations.issues_count}</strong>
+            ) : (
+              detail.reports.citations.issues_count
+            )}{' '}
+            issues detected
+          </p>
         </article>
         <article className="metric-card">
           <h3>Plagiarism</h3>
-          <p className="metric-value">{detail.metrics.plagiarism_similarity}%</p>
-          <p>{detail.reports.plagiarism.risk_level.toUpperCase()} risk</p>
+          <p className="metric-value">
+            <span className={`risk-dot ${riskClass(detail.reports.plagiarism.risk_level)}`} />
+            {detail.metrics.plagiarism_similarity}%
+          </p>
+          <p>
+            Risk:{' '}
+            <strong
+              style={{
+                color:
+                  detail.reports.plagiarism.risk_level === 'red'
+                    ? 'var(--risk, #dc2626)'
+                    : detail.reports.plagiarism.risk_level === 'yellow'
+                      ? '#d97706'
+                      : 'var(--success)',
+              }}
+            >
+              {detail.reports.plagiarism.risk_level.toUpperCase()}
+            </strong>
+          </p>
         </article>
         <article className="metric-card">
           <h3>Mock Viva Readiness</h3>
-          <p className="metric-value">{detail.metrics.readiness_score ?? 'N/A'}</p>
+          <p className="metric-value">
+            {detail.metrics.readiness_score != null ? `${detail.metrics.readiness_score}%` : 'N/A'}
+          </p>
+          {detail.metrics.readiness_score != null ? (
+            <div className="metric-bar-track">
+              <div
+                className="metric-bar-fill"
+                style={{
+                  width: `${detail.metrics.readiness_score}%`,
+                  background:
+                    detail.metrics.readiness_score >= 70
+                      ? 'var(--success)'
+                      : detail.metrics.readiness_score >= 40
+                        ? '#d97706'
+                        : 'var(--risk, #dc2626)',
+                }}
+              />
+            </div>
+          ) : null}
           <p>Latest coaching readiness</p>
         </article>
       </section>
