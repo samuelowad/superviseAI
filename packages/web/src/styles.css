@@ -1615,6 +1615,59 @@ a {
   display: flex;
   gap: 0.9rem;
 }
+
+/* ── Line chart styles ── */
+.analytics-line-chart {
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.analytics-line-path {
+  stroke-dasharray: 1200;
+  stroke-dashoffset: 1200;
+  animation: analytics-draw-line 1.2s ease-out 0.15s forwards;
+}
+
+.analytics-area-path {
+  opacity: 0;
+  animation: analytics-fade-area 0.6s ease-out 0.8s forwards;
+}
+
+@keyframes analytics-draw-line {
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes analytics-fade-area {
+  to { opacity: 1; }
+}
+
+.analytics-tooltip {
+  pointer-events: none;
+  animation: analytics-tooltip-in 0.12s ease-out;
+}
+
+@keyframes analytics-tooltip-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Bar chart styles ── */
+.analytics-bar-chart {
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.analytics-bar-rect {
+  animation: analytics-bar-grow 0.5s ease-out both;
+  transform-origin: bottom;
+}
+
+@keyframes analytics-bar-grow {
+  from { transform: scaleY(0); opacity: 0; }
+  to { transform: scaleY(1); opacity: 1; }
+}
 @media (max-width: 900px) {
   .analytics-chart-row {
     flex-direction: column;
@@ -2650,6 +2703,236 @@ a {
   background: #f7faf9;
 }
 
+/* ── Cohorts ── */
+.cohort-create-card {
+  border: 1px dashed var(--border);
+  background: #fafbfa;
+}
+
+.cohort-create-header {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0.75rem;
+  color: var(--primary);
+}
+
+.cohort-create-form {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.cohort-field {
+  flex: 1;
+  min-width: 160px;
+}
+
+.cohort-field label {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 0.3rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.cohort-select {
+  appearance: none;
+  background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E") no-repeat right 0.6rem center;
+  padding-right: 2rem;
+}
+
+.cohort-grid {
+  display: grid;
+  gap: 0.75rem;
+}
+
+/* Cohort card */
+.cohort-card {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: #fff;
+  overflow: hidden;
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+
+.cohort-card:hover {
+  box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+}
+
+.cohort-card-expanded {
+  border-color: var(--primary);
+  box-shadow: 0 2px 16px rgba(14,124,102,0.08);
+}
+
+.cohort-card-top {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 1.15rem;
+}
+
+.cohort-card-icon {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: rgba(14,124,102,0.08);
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cohort-card-name {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.cohort-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-top: 0.2rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.cohort-badge {
+  display: inline-block;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  background: rgba(14,124,102,0.1);
+  color: var(--primary);
+  letter-spacing: 0.03em;
+}
+
+.cohort-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-shrink: 0;
+}
+
+.cohort-count-bar {
+  padding: 0 1.15rem 0.85rem;
+}
+
+/* Expanded panel */
+.cohort-expand-panel {
+  border-top: 1px solid var(--border);
+  animation: cohort-slide-down 0.25s ease-out;
+}
+
+@keyframes cohort-slide-down {
+  from { opacity: 0; max-height: 0; }
+  to { opacity: 1; max-height: 600px; }
+}
+
+.cohort-section {
+  padding: 0.85rem 1.15rem;
+}
+
+.cohort-section:not(:last-child) {
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.cohort-section-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.6rem;
+}
+
+.cohort-section-header h4 {
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.cohort-empty-text {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+/* Student chips inside cohort */
+.cohort-student-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.cohort-student-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: 10px;
+  background: #f8faf9;
+  transition: background 0.15s;
+}
+
+.cohort-student-chip:hover {
+  background: #f0f5f3;
+}
+
+.cohort-student-avatar {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.cohort-student-name {
+  display: block;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.cohort-student-email {
+  display: block;
+  font-size: 0.76rem;
+  color: var(--text-secondary);
+}
+
+.cohort-student-date {
+  margin-left: auto;
+  font-size: 0.76rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.cohort-enroll-section {
+  background: #fafbfa;
+}
+
+.cohort-enroll-row {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.cohort-enroll-row .form-input {
+  flex: 1;
+  min-width: 180px;
+}
+
 /* ── Mock Viva ── */
 .mock-viva-page {
   display: grid;
@@ -2678,22 +2961,196 @@ a {
   font-weight: 600;
 }
 
-.mock-viva-voice-controls {
-  display: flex;
-  gap: 1.25rem;
-  flex-wrap: wrap;
-  padding: 0.55rem 0.85rem;
+/* ── Voice settings panel ── */
+.viva-voice-panel {
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 14px;
   background: #fff;
-  font-size: 0.85rem;
+  overflow: hidden;
 }
 
-.mock-viva-voice-controls label {
+.viva-voice-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.6rem 1rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border);
+  background: #fafafa;
+}
+
+.viva-voice-panel-header svg {
+  color: var(--primary);
+}
+
+/* Recording badge */
+.viva-rec-badge {
+  margin-left: auto;
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.35rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: #dc2626;
+  background: rgba(220,38,38,0.08);
+  border: 1px solid rgba(220,38,38,0.2);
+}
+
+.viva-rec-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #dc2626;
+  animation: viva-pulse 1s ease-in-out infinite;
+}
+
+@keyframes viva-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.75); }
+}
+
+.viva-voice-toggles {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Each toggle row */
+.viva-toggle-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.7rem 1rem;
   cursor: pointer;
+  transition: background 0.15s;
+}
+
+.viva-toggle-item:not(:last-child) {
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.viva-toggle-item:hover {
+  background: #f9fafb;
+}
+
+.viva-toggle-disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.viva-toggle-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+}
+
+.viva-toggle-label > svg {
+  flex-shrink: 0;
+  margin-top: 0.15rem;
+  color: var(--text-secondary);
+}
+
+.viva-toggle-name {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.3;
+}
+
+.viva-toggle-desc {
+  display: block;
+  font-size: 0.76rem;
+  color: var(--text-secondary);
+  line-height: 1.35;
+  margin-top: 0.1rem;
+}
+
+/* Azure "Enhanced" badge */
+.viva-azure-badge {
+  display: inline-block;
+  padding: 0.08rem 0.4rem;
+  border-radius: 999px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  background: linear-gradient(135deg, #0078d4 0%, #00b7c3 100%);
+  color: #fff;
+  line-height: 1.6;
+}
+
+.viva-toggle-azure {
+  background: linear-gradient(135deg, rgba(0,120,212,0.02) 0%, rgba(0,183,195,0.03) 100%);
+}
+
+.viva-toggle-azure:hover {
+  background: linear-gradient(135deg, rgba(0,120,212,0.05) 0%, rgba(0,183,195,0.06) 100%);
+}
+
+/* Custom toggle switch */
+.viva-switch {
+  flex-shrink: 0;
+  width: 40px;
+  height: 22px;
+  border-radius: 999px;
+  background: #d4d4d8;
+  cursor: pointer;
+  position: relative;
+  transition: background 0.2s;
+}
+
+.viva-switch-on {
+  background: var(--primary);
+}
+
+.viva-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  transition: transform 0.2s;
+}
+
+.viva-switch-on .viva-switch-thumb {
+  transform: translateX(18px);
+}
+
+/* Mic button in input row */
+.viva-mic-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.viva-mic-btn-active {
+  background: #dc2626;
+  color: #fff;
+  border-color: #dc2626;
+  animation: viva-mic-glow 1.2s ease-in-out infinite;
+}
+
+.viva-mic-btn-active:hover {
+  background: #b91c1c;
+  border-color: #b91c1c;
+}
+
+@keyframes viva-mic-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(220,38,38,0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(220,38,38,0); }
 }
 
 .mock-viva-chat {
