@@ -1788,6 +1788,65 @@ interface SessionSummary {
   turns_completed?: number;
 }
 
+function writeAscii(view: DataView, offset: number, text: string): void {
+  for (let index = 0; index < text.length; index += 1) {
+    view.setUint8(offset + index, text.charCodeAt(index));
+  }
+}
+
+function encodePcmWav(samples: Float32Array, sampleRate: number): Blob {
+  const bytesPerSample = 2;
+  const blockAlign = bytesPerSample;
+  const byteRate = sampleRate * blockAlign;
+  const dataSize = samples.length * bytesPerSample;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+
+  writeAscii(view, 0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  writeAscii(view, 8, 'WAVE');
+  writeAscii(view, 12, 'fmt ');
+  view.setUint32(16, 16, true); // PCM chunk size
+  view.setUint16(20, 1, true); // format = PCM
+  view.setUint16(22, 1, true); // mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, 16, true); // bits per sample
+  writeAscii(view, 36, 'data');
+  view.setUint32(40, dataSize, true);
+
+  let offset = 44;
+  for (let i = 0; i < samples.length; i += 1) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    offset += 2;
+  }
+
+  return new Blob([buffer], { type: 'audio/wav' });
+}
+
+async function convertBlobToPcmWav(blob: Blob, targetRate = 16000): Promise<Blob> {
+  const arrayBuffer = await blob.arrayBuffer();
+  const audioContext = new AudioContext();
+  try {
+    const decoded = await audioContext.decodeAudioData(arrayBuffer.slice(0));
+    const frameCount = Math.max(1, Math.ceil(decoded.duration * targetRate));
+    const offline = new OfflineAudioContext(1, frameCount, targetRate);
+    const source = offline.createBufferSource();
+    source.buffer = decoded;
+    source.connect(offline.destination);
+    source.start(0);
+    const rendered = await offline.startRendering();
+    const channelData = rendered.getChannelData(0);
+    const samples = new Float32Array(channelData.length);
+    samples.set(channelData);
+    return encodePcmWav(samples, targetRate);
+  } finally {
+    await audioContext.close();
+  }
+}
+
 const COACHING_MODE_LABELS: Record<CoachingMode, string> = {
   mock_viva: 'Mock Viva',
   argument_defender: 'Argument Defender',
@@ -1934,8 +1993,8 @@ export function StudentMockVivaPage(): JSX.Element {
     // Try Azure TTS first
     if (useAzureVoice) {
       try {
-        const token = localStorage.getItem('auth_token') ?? '';
-        const resp = await fetch('/api/v1/coaching/tts', {
+        const token = getAccessToken() ?? '';
+        const resp = await fetch(`${API_BASE}/coaching/tts`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -1980,7 +2039,14 @@ export function StudentMockVivaPage(): JSX.Element {
       void navigator.mediaDevices
         .getUserMedia({ audio: true })
         .then((stream) => {
-          const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+          const preferredTypes = ['audio/ogg;codecs=opus', 'audio/webm;codecs=opus', 'audio/webm'];
+          const selectedMimeType = preferredTypes.find((type) =>
+            MediaRecorder.isTypeSupported(type),
+          );
+
+          const recorder = selectedMimeType
+            ? new MediaRecorder(stream, { mimeType: selectedMimeType })
+            : new MediaRecorder(stream);
           audioChunksRef.current = [];
           recorder.ondataavailable = (e) => {
             if (e.data.size > 0) audioChunksRef.current.push(e.data);
@@ -1991,11 +2057,22 @@ export function StudentMockVivaPage(): JSX.Element {
               if (!sessionId || audioChunksRef.current.length === 0) return;
               setLoading(true);
               try {
-                const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+                const recordedMimeType = selectedMimeType || recorder.mimeType || 'audio/webm';
+                const extension = recordedMimeType.includes('ogg') ? 'ogg' : 'webm';
+                const rawBlob = new Blob(audioChunksRef.current, { type: recordedMimeType });
+                let uploadBlob = rawBlob;
+                let uploadFilename = `recording.${extension}`;
+
+                try {
+                  uploadBlob = await convertBlobToPcmWav(rawBlob, 16000);
+                  uploadFilename = 'recording.wav';
+                } catch {
+                  // keep original if conversion fails
+                }
                 const formData = new FormData();
-                formData.append('audio', blob, 'recording.webm');
-                const token = localStorage.getItem('auth_token') ?? '';
-                const resp = await fetch(`/api/v1/coaching/voice?session_id=${sessionId}`, {
+                formData.append('audio', uploadBlob, uploadFilename);
+                const token = getAccessToken() ?? '';
+                const resp = await fetch(`${API_BASE}/coaching/voice?session_id=${sessionId}`, {
                   method: 'POST',
                   headers: { Authorization: `Bearer ${token}` },
                   body: formData,
