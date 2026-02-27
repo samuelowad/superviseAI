@@ -4,6 +4,7 @@ import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.js?url';
 
+import { useAuth } from '../../auth/AuthContext';
 import { getAccessToken } from '../../auth/storage';
 import { apiRequest } from '../../lib/api';
 import { useNavigate } from '../../lib/router';
@@ -357,12 +358,26 @@ function WorkspaceHeader({
 
 function MetricsRow({ workspace }: { workspace: WorkspaceResponse }): JSX.Element {
   const trendClass = workspace.metrics.trend_delta >= 0 ? 'trend-up' : 'trend-down';
+  const plagRisk = workspace.right_panel.plagiarism.risk_level;
+  const dueUrgent = workspace.metrics.due_in_days !== null && workspace.metrics.due_in_days < 3;
+  const citColor =
+    workspace.metrics.citation_health_score >= 80
+      ? 'var(--success)'
+      : workspace.metrics.citation_health_score >= 50
+        ? '#d97706'
+        : 'var(--risk)';
 
   return (
     <section className="workspace-metrics-grid">
       <article className="metric-card metric-primary">
         <h3>Thesis Progress Score</h3>
         <p className="metric-value">{workspace.metrics.progress_score}%</p>
+        <div className="metric-bar-track">
+          <div
+            className="metric-bar-fill"
+            style={{ width: `${workspace.metrics.progress_score}%` }}
+          />
+        </div>
         <p className={trendClass}>
           {workspace.metrics.trend_delta >= 0 ? '+' : ''}
           {workspace.metrics.trend_delta}% vs previous draft
@@ -372,19 +387,56 @@ function MetricsRow({ workspace }: { workspace: WorkspaceResponse }): JSX.Elemen
       <article className="metric-card">
         <h3>Citation Health</h3>
         <p className="metric-value">{workspace.metrics.citation_health_score}%</p>
-        <p>{workspace.metrics.citation_issues} issue(s) detected</p>
+        <div className="metric-bar-track">
+          <div
+            className="metric-bar-fill"
+            style={{ width: `${workspace.metrics.citation_health_score}%`, background: citColor }}
+          />
+        </div>
+        <p>
+          {workspace.metrics.citation_issues > 0 ? (
+            <strong style={{ color: '#d97706' }}>{workspace.metrics.citation_issues}</strong>
+          ) : (
+            workspace.metrics.citation_issues
+          )}{' '}
+          issue(s) detected
+        </p>
       </article>
 
       <article className="metric-card">
         <h3>Plagiarism Score</h3>
-        <p className="metric-value">{workspace.metrics.plagiarism_similarity}%</p>
-        <p>Similarity across detected sections</p>
+        <p className="metric-value">
+          <span className={`risk-dot risk-${plagRisk}`} />
+          {workspace.metrics.plagiarism_similarity}%
+        </p>
+        <p>
+          Risk:{' '}
+          <strong
+            style={{
+              color:
+                plagRisk === 'green'
+                  ? 'var(--success)'
+                  : plagRisk === 'yellow'
+                    ? '#d97706'
+                    : 'var(--risk)',
+            }}
+          >
+            {plagRisk.toUpperCase()}
+          </strong>
+        </p>
       </article>
 
       <article className="metric-card">
-        <h3>Milestone</h3>
+        <h3>Next Milestone</h3>
         <p className="metric-value small">{workspace.metrics.next_milestone}</p>
-        <p>{formatDueText(workspace.metrics.due_in_days)}</p>
+        <p
+          style={{
+            color: dueUrgent ? 'var(--risk)' : undefined,
+            fontWeight: dueUrgent ? 700 : undefined,
+          }}
+        >
+          {formatDueText(workspace.metrics.due_in_days)}
+        </p>
       </article>
     </section>
   );
@@ -516,39 +568,72 @@ function CentralPanel({ workspace }: { workspace: WorkspaceResponse }): JSX.Elem
       {workspace.central_panel.mode === 'first_submission' ? (
         <>
           <h3>Abstract Alignment Analysis</h3>
-          <p>
+          <p style={{ marginBottom: '0.75rem' }}>
             Verdict:{' '}
-            <strong>
-              {workspace.central_panel.abstract_alignment?.verdict ?? 'insufficient_data'}
-            </strong>
+            <span
+              className={`status-pill ${
+                workspace.central_panel.abstract_alignment?.verdict === 'aligned'
+                  ? 'success'
+                  : workspace.central_panel.abstract_alignment?.verdict === 'partially_aligned'
+                    ? 'warning'
+                    : 'info'
+              }`}
+            >
+              {(workspace.central_panel.abstract_alignment?.verdict ?? 'insufficient data').replace(
+                /_/g,
+                ' ',
+              )}
+            </span>
           </p>
           <div className="grid-two-columns">
             <div>
               <h4>Key Topic Coverage</h4>
-              <ul>
-                {(workspace.central_panel.abstract_alignment?.key_topic_coverage ?? []).map(
-                  (item) => (
-                    <li key={item}>{item}</li>
-                  ),
-                )}
-              </ul>
+              {(workspace.central_panel.abstract_alignment?.key_topic_coverage ?? []).length > 0 ? (
+                <ul>
+                  {(workspace.central_panel.abstract_alignment?.key_topic_coverage ?? []).map(
+                    (item) => (
+                      <li key={item}>{item}</li>
+                    ),
+                  )}
+                </ul>
+              ) : (
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                  No topics identified yet.
+                </p>
+              )}
             </div>
             <div>
               <h4>Missing Core Sections</h4>
-              <ul>
-                {(workspace.central_panel.abstract_alignment?.missing_core_sections ?? []).map(
-                  (item) => (
-                    <li key={item}>{item}</li>
-                  ),
-                )}
-              </ul>
+              {(workspace.central_panel.abstract_alignment?.missing_core_sections ?? []).length >
+              0 ? (
+                <ul>
+                  {(workspace.central_panel.abstract_alignment?.missing_core_sections ?? []).map(
+                    (item) => (
+                      <li key={item}>{item}</li>
+                    ),
+                  )}
+                </ul>
+              ) : (
+                <p style={{ fontSize: '0.85rem', color: 'var(--success)' }}>
+                  No missing sections detected.
+                </p>
+              )}
             </div>
           </div>
           <p>
             Structural readiness:{' '}
-            <strong>
+            <span
+              className={`status-pill ${
+                workspace.central_panel.abstract_alignment?.structural_readiness === 'ready'
+                  ? 'success'
+                  : workspace.central_panel.abstract_alignment?.structural_readiness ===
+                      'developing'
+                    ? 'warning'
+                    : 'info'
+              }`}
+            >
               {workspace.central_panel.abstract_alignment?.structural_readiness ?? 'developing'}
-            </strong>
+            </span>
           </p>
         </>
       ) : (
@@ -723,51 +808,127 @@ function CentralPanel({ workspace }: { workspace: WorkspaceResponse }): JSX.Elem
 }
 
 function RightPanel({ workspace }: { workspace: WorkspaceResponse }): JSX.Element {
+  const plagRisk = workspace.right_panel.plagiarism.risk_level;
+  const citIssueCount =
+    workspace.right_panel.citations.missing_citations.length +
+    workspace.right_panel.citations.broken_references.length +
+    workspace.right_panel.citations.formatting_errors.length;
+  const dueUrgent =
+    workspace.right_panel.milestone.due_in_days !== null &&
+    workspace.right_panel.milestone.due_in_days < 3;
+
   return (
     <aside className="workspace-right-panel">
       <details open>
-        <summary>Plagiarism Report</summary>
+        <summary>
+          Plagiarism Report
+          <span
+            className={`summary-badge ${plagRisk === 'red' ? 'danger' : plagRisk === 'yellow' ? 'warning' : ''}`}
+          >
+            {workspace.right_panel.plagiarism.similarity_percent}%
+          </span>
+        </summary>
         <div className="right-panel-card-body">
-          <p>Similarity: {workspace.right_panel.plagiarism.similarity_percent}%</p>
-          <p>Risk Level: {workspace.right_panel.plagiarism.risk_level}</p>
-          <ul>
-            {workspace.right_panel.plagiarism.flagged_sections.map((section) => (
-              <li key={section}>{section}</li>
-            ))}
-          </ul>
+          <p>
+            <span className={`risk-dot risk-${plagRisk}`} />
+            Similarity: <strong>{workspace.right_panel.plagiarism.similarity_percent}%</strong>
+          </p>
+          <p>
+            Risk Level:{' '}
+            <strong
+              style={{
+                color:
+                  plagRisk === 'green'
+                    ? 'var(--success)'
+                    : plagRisk === 'yellow'
+                      ? '#d97706'
+                      : 'var(--risk)',
+              }}
+            >
+              {plagRisk.toUpperCase()}
+            </strong>
+          </p>
+          {workspace.right_panel.plagiarism.flagged_sections.length > 0 ? (
+            <>
+              <p style={{ marginTop: '0.4rem', fontWeight: 600 }}>Flagged sections:</p>
+              <ul>
+                {workspace.right_panel.plagiarism.flagged_sections.map((section) => (
+                  <li key={section}>{section}</li>
+                ))}
+              </ul>
+            </>
+          ) : (
+            <p style={{ color: 'var(--success)', marginTop: '0.4rem' }}>
+              No flagged sections found.
+            </p>
+          )}
         </div>
       </details>
 
       <details>
-        <summary>Citation & Reference Validator</summary>
+        <summary>
+          Citation & Reference Validator
+          {citIssueCount > 0 ? (
+            <span className="summary-badge warning">{citIssueCount}</span>
+          ) : (
+            <span className="summary-badge">OK</span>
+          )}
+        </summary>
         <div className="right-panel-card-body">
-          <p>Missing citations:</p>
-          <ul>
-            {workspace.right_panel.citations.missing_citations.map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
-          <p>Broken references:</p>
-          <ul>
-            {workspace.right_panel.citations.broken_references.map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
-          <p>Formatting errors:</p>
-          <ul>
-            {workspace.right_panel.citations.formatting_errors.map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
+          {workspace.right_panel.citations.missing_citations.length > 0 ? (
+            <>
+              <p style={{ fontWeight: 600 }}>Missing citations:</p>
+              <ul>
+                {workspace.right_panel.citations.missing_citations.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </>
+          ) : null}
+          {workspace.right_panel.citations.broken_references.length > 0 ? (
+            <>
+              <p style={{ fontWeight: 600 }}>Broken references:</p>
+              <ul>
+                {workspace.right_panel.citations.broken_references.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </>
+          ) : null}
+          {workspace.right_panel.citations.formatting_errors.length > 0 ? (
+            <>
+              <p style={{ fontWeight: 600 }}>Formatting errors:</p>
+              <ul>
+                {workspace.right_panel.citations.formatting_errors.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </>
+          ) : null}
+          {citIssueCount === 0 ? (
+            <p style={{ color: 'var(--success)' }}>All citations look good.</p>
+          ) : null}
         </div>
       </details>
 
       <details>
         <summary>Milestone Tracker</summary>
         <div className="right-panel-card-body">
-          <p>{workspace.right_panel.milestone.next_milestone}</p>
-          <p>{formatDueText(workspace.right_panel.milestone.due_in_days)}</p>
-          <p>Status: {workspace.right_panel.milestone.status}</p>
+          <p style={{ fontWeight: 600 }}>{workspace.right_panel.milestone.next_milestone}</p>
+          <p
+            style={{
+              color: dueUrgent ? 'var(--risk)' : undefined,
+              fontWeight: dueUrgent ? 700 : undefined,
+            }}
+          >
+            {formatDueText(workspace.right_panel.milestone.due_in_days)}
+          </p>
+          <p>
+            Status:{' '}
+            <span className={`status-pill ${statusTone(workspace.right_panel.milestone.status)}`}>
+              {workspace.right_panel.milestone.status}
+            </span>
+          </p>
           <p>Due Date: {workspace.right_panel.milestone.due_date ?? 'Not set'}</p>
         </div>
       </details>
@@ -775,8 +936,16 @@ function RightPanel({ workspace }: { workspace: WorkspaceResponse }): JSX.Elemen
       <details>
         <summary>Latest Professor Feedback</summary>
         <div className="right-panel-card-body">
-          <p>{workspace.right_panel.latest_professor_feedback.text}</p>
-          <p>{formatDate(workspace.right_panel.latest_professor_feedback.timestamp)}</p>
+          {workspace.right_panel.latest_professor_feedback.text ? (
+            <p style={{ lineHeight: 1.55 }}>
+              {workspace.right_panel.latest_professor_feedback.text}
+            </p>
+          ) : (
+            <p style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>No feedback yet.</p>
+          )}
+          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.3rem' }}>
+            {formatDate(workspace.right_panel.latest_professor_feedback.timestamp)}
+          </p>
         </div>
       </details>
     </aside>
@@ -1177,8 +1346,9 @@ export function StudentWorkspacePage(): JSX.Element {
 
   if (loading) {
     return (
-      <section className="placeholder-card">
-        <h2>Loading Thesis Workspace...</h2>
+      <section className="placeholder-card" style={{ textAlign: 'center', padding: '3rem' }}>
+        <div className="spinner" role="status" aria-label="Loading workspace" />
+        <p style={{ marginTop: '0.75rem' }}>Loading Thesis Workspace...</p>
       </section>
     );
   }
@@ -1239,16 +1409,38 @@ export function StudentSubmissionsPage(): JSX.Element {
   }, []);
 
   if (loading) {
-    return <section className="placeholder-card">Loading submissions...</section>;
+    return (
+      <section className="placeholder-card" style={{ textAlign: 'center', padding: '2.5rem' }}>
+        <div className="spinner" role="status" aria-label="Loading submissions" />
+      </section>
+    );
   }
 
   if (!workspace?.thesis) {
-    return <section className="placeholder-card">No thesis yet.</section>;
+    return (
+      <section className="placeholder-card">
+        <h2>Submissions</h2>
+        <p>Create a thesis proposal first to start uploading drafts.</p>
+      </section>
+    );
+  }
+
+  if (workspace.submissions.length === 0) {
+    return (
+      <section className="placeholder-card">
+        <h2>Submissions</h2>
+        <p style={{ marginBottom: '0.5rem' }}>{workspace.thesis.title}</p>
+        <p>No submissions yet. Upload your first draft from the workspace.</p>
+      </section>
+    );
   }
 
   return (
     <section className="placeholder-card">
       <h2>Submissions</h2>
+      <p style={{ marginBottom: '1rem', color: 'var(--text-secondary)', fontSize: '0.88rem' }}>
+        {workspace.thesis.title} -- {workspace.submissions.length} version(s)
+      </p>
       <table className="simple-table">
         <thead>
           <tr>
@@ -1258,11 +1450,17 @@ export function StudentSubmissionsPage(): JSX.Element {
           </tr>
         </thead>
         <tbody>
-          {workspace.submissions.map((submission) => (
+          {[...workspace.submissions].reverse().map((submission) => (
             <tr key={submission.id}>
-              <td>v{submission.version_number}</td>
-              <td>{submission.status}</td>
-              <td>{new Date(submission.created_at).toLocaleString()}</td>
+              <td>
+                <strong style={{ fontFamily: 'monospace' }}>v{submission.version_number}</strong>
+              </td>
+              <td>
+                <span className={`status-pill ${statusTone(submission.status)}`}>
+                  {submission.status}
+                </span>
+              </td>
+              <td>{formatDate(submission.created_at)}</td>
             </tr>
           ))}
         </tbody>
@@ -1473,11 +1671,78 @@ export function StudentHistoryPage(): JSX.Element {
 }
 
 export function StudentSettingsPage(): JSX.Element {
+  const { user } = useAuth();
+
   return (
-    <section className="placeholder-card">
-      <h2>Settings</h2>
-      <p>Profile, notification, and preference controls will be expanded in upcoming iterations.</p>
-    </section>
+    <div style={{ display: 'grid', gap: '0.75rem' }}>
+      <section className="placeholder-card">
+        <h2>Profile</h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginTop: '0.75rem' }}>
+          <div
+            style={{
+              width: 56,
+              height: 56,
+              borderRadius: '50%',
+              background: 'var(--primary)',
+              color: '#fff',
+              display: 'grid',
+              placeItems: 'center',
+              fontSize: '1.1rem',
+              fontWeight: 700,
+              flexShrink: 0,
+            }}
+          >
+            {user?.full_name
+              ?.split(' ')
+              .slice(0, 2)
+              .map((w) => w[0])
+              .join('')
+              .toUpperCase() ?? '?'}
+          </div>
+          <div>
+            <p style={{ margin: 0, fontWeight: 700, fontSize: '1rem' }}>{user?.full_name}</p>
+            <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.88rem' }}>
+              {user?.email}
+            </p>
+            <span className="role-pill" style={{ marginTop: '0.3rem', display: 'inline-block' }}>
+              {user?.role}
+            </span>
+          </div>
+        </div>
+      </section>
+
+      <section className="placeholder-card">
+        <h2>Notifications</h2>
+        <div style={{ display: 'grid', gap: '0.65rem', marginTop: '0.75rem' }}>
+          {[
+            { label: 'Email me when supervisor sends feedback', defaultOn: true },
+            { label: 'Email me before milestone deadlines', defaultOn: true },
+            { label: 'Email me when plagiarism scan completes', defaultOn: false },
+          ].map((pref) => (
+            <label
+              key={pref.label}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.55rem',
+                fontSize: '0.88rem',
+                cursor: 'pointer',
+              }}
+            >
+              <input type="checkbox" defaultChecked={pref.defaultOn} />
+              {pref.label}
+            </label>
+          ))}
+        </div>
+      </section>
+
+      <section className="placeholder-card">
+        <h2>Account</h2>
+        <p style={{ marginTop: '0.5rem' }}>
+          Account management and data export options will be available in a future release.
+        </p>
+      </section>
+    </div>
   );
 }
 
@@ -1890,97 +2155,134 @@ export function StudentMockVivaPage(): JSX.Element {
   return (
     <section className="mock-viva-page">
       <header className="mock-viva-header">
-        <h2>{sessionId ? modeLabel : 'AI Coaching'}</h2>
+        <div>
+          <h2>{sessionId ? modeLabel : 'AI Coaching'}</h2>
+          {sessionId ? (
+            <p>
+              Question {Math.max(questionIndex, 1)} of {totalQuestions}
+              {' · '}
+              <span style={{ color: 'var(--primary)', fontWeight: 600 }}>
+                {LEARNER_PROFILE_LABELS[selectedProfile]}
+              </span>
+            </p>
+          ) : (
+            <p>Choose a mode and start an AI-powered coaching session based on your thesis.</p>
+          )}
+        </div>
         {sessionId ? (
-          <p>
-            Question {Math.max(questionIndex, 1)} / {totalQuestions} &nbsp;·&nbsp;
-            <span style={{ color: 'var(--primary)', fontWeight: 600 }}>{modeLabel}</span>
-          </p>
-        ) : (
-          <p>Choose a mode and start an AI-powered coaching session based on your thesis.</p>
-        )}
+          <div style={{ minWidth: '140px', textAlign: 'right' }}>
+            <div
+              style={{
+                fontSize: '0.78rem',
+                color: 'var(--text-secondary)',
+                marginBottom: '0.3rem',
+              }}
+            >
+              {Math.round((Math.max(questionIndex, 1) / totalQuestions) * 100)}% complete
+            </div>
+            <div className="metric-bar-track" style={{ height: '6px' }}>
+              <div
+                className="metric-bar-fill"
+                style={{
+                  width: `${(Math.max(questionIndex, 1) / totalQuestions) * 100}%`,
+                  transition: 'width 0.4s',
+                }}
+              />
+            </div>
+          </div>
+        ) : null}
       </header>
 
       {/* Mode selector — only visible before session starts */}
       {!sessionId && !summary ? (
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-            gap: '0.75rem',
-            marginBottom: '1rem',
-          }}
-        >
-          {(Object.keys(COACHING_MODE_LABELS) as CoachingMode[]).map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              onClick={() => setSelectedMode(mode)}
-              style={{
-                border: `2px solid ${selectedMode === mode ? 'var(--primary)' : 'var(--border)'}`,
-                borderRadius: '12px',
-                padding: '1rem',
-                background: selectedMode === mode ? 'rgba(14,124,102,0.07)' : 'white',
-                textAlign: 'left',
-                cursor: 'pointer',
-                transition: 'all 0.15s',
-              }}
-            >
-              <div
+        <>
+          <h3 style={{ margin: '0 0 0.4rem', fontSize: '0.95rem', color: 'var(--text-secondary)' }}>
+            Coaching Mode
+          </h3>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+              gap: '0.75rem',
+              marginBottom: '1rem',
+            }}
+          >
+            {(Object.keys(COACHING_MODE_LABELS) as CoachingMode[]).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setSelectedMode(mode)}
                 style={{
-                  fontWeight: 700,
-                  color: selectedMode === mode ? 'var(--primary)' : 'var(--text)',
-                  marginBottom: '0.25rem',
+                  border: `2px solid ${selectedMode === mode ? 'var(--primary)' : 'var(--border)'}`,
+                  borderRadius: '12px',
+                  padding: '1rem',
+                  background: selectedMode === mode ? 'rgba(14,124,102,0.07)' : 'white',
+                  textAlign: 'left',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s',
                 }}
               >
-                {COACHING_MODE_LABELS[mode]}
-              </div>
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
-                {COACHING_MODE_DESCRIPTIONS[mode]}
-              </div>
-            </button>
-          ))}
-        </div>
-      ) : null}
+                <div
+                  style={{
+                    fontWeight: 700,
+                    color: selectedMode === mode ? 'var(--primary)' : 'var(--text)',
+                    marginBottom: '0.25rem',
+                  }}
+                >
+                  {COACHING_MODE_LABELS[mode]}
+                </div>
+                <div
+                  style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}
+                >
+                  {COACHING_MODE_DESCRIPTIONS[mode]}
+                </div>
+              </button>
+            ))}
+          </div>
 
-      {!sessionId && !summary ? (
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-            gap: '0.75rem',
-            marginBottom: '1rem',
-          }}
-        >
-          {(Object.keys(LEARNER_PROFILE_LABELS) as LearnerProfile[]).map((profile) => (
-            <button
-              key={profile}
-              type="button"
-              onClick={() => setSelectedProfile(profile)}
-              style={{
-                border: `2px solid ${selectedProfile === profile ? 'var(--primary)' : 'var(--border)'}`,
-                borderRadius: '12px',
-                padding: '0.85rem',
-                background: selectedProfile === profile ? 'rgba(14,124,102,0.07)' : 'white',
-                textAlign: 'left',
-                cursor: 'pointer',
-              }}
-            >
-              <div
+          <h3 style={{ margin: '0 0 0.4rem', fontSize: '0.95rem', color: 'var(--text-secondary)' }}>
+            Learner Profile
+          </h3>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+              gap: '0.75rem',
+              marginBottom: '1rem',
+            }}
+          >
+            {(Object.keys(LEARNER_PROFILE_LABELS) as LearnerProfile[]).map((profile) => (
+              <button
+                key={profile}
+                type="button"
+                onClick={() => setSelectedProfile(profile)}
                 style={{
-                  fontWeight: 700,
-                  color: selectedProfile === profile ? 'var(--primary)' : 'var(--text)',
-                  marginBottom: '0.2rem',
+                  border: `2px solid ${selectedProfile === profile ? 'var(--primary)' : 'var(--border)'}`,
+                  borderRadius: '12px',
+                  padding: '0.85rem',
+                  background: selectedProfile === profile ? 'rgba(14,124,102,0.07)' : 'white',
+                  textAlign: 'left',
+                  cursor: 'pointer',
                 }}
               >
-                {LEARNER_PROFILE_LABELS[profile]}
-              </div>
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.35 }}>
-                {LEARNER_PROFILE_DESCRIPTIONS[profile]}
-              </div>
-            </button>
-          ))}
-        </div>
+                <div
+                  style={{
+                    fontWeight: 700,
+                    color: selectedProfile === profile ? 'var(--primary)' : 'var(--text)',
+                    marginBottom: '0.2rem',
+                  }}
+                >
+                  {LEARNER_PROFILE_LABELS[profile]}
+                </div>
+                <div
+                  style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.35 }}
+                >
+                  {LEARNER_PROFILE_DESCRIPTIONS[profile]}
+                </div>
+              </button>
+            ))}
+          </div>
+        </>
       ) : null}
 
       {/* Voice / TTS controls */}
@@ -2028,20 +2330,29 @@ export function StudentMockVivaPage(): JSX.Element {
       ) : null}
 
       {sessionId && liveMetrics ? (
-        <article className="placeholder-card" style={{ marginTop: '1rem' }}>
-          <h3 style={{ marginBottom: '0.5rem' }}>Live Coaching Analytics</h3>
-          <p style={{ marginBottom: '0.65rem', color: 'var(--text-secondary)' }}>
-            Turn {liveMetrics.turn} · Profile: {LEARNER_PROFILE_LABELS[selectedProfile]} · Trend{' '}
-            {TREND_ICONS[liveMetrics.trend]} {liveMetrics.trend}
-          </p>
+        <article className="placeholder-card" style={{ marginTop: '0.25rem' }}>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'baseline',
+              marginBottom: '0.5rem',
+            }}
+          >
+            <h3 style={{ margin: 0 }}>Live Coaching Analytics</h3>
+            <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+              Turn {liveMetrics.turn}
+            </span>
+          </div>
 
           <div
-            style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '0.65rem' }}
+            style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}
           >
             <span
               style={{
-                border: `1px solid ${DIFFICULTY_COLORS[liveMetrics.difficulty]}`,
+                border: `1.5px solid ${DIFFICULTY_COLORS[liveMetrics.difficulty]}`,
                 color: DIFFICULTY_COLORS[liveMetrics.difficulty],
+                background: `${DIFFICULTY_COLORS[liveMetrics.difficulty]}10`,
                 borderRadius: '999px',
                 padding: '0.2rem 0.65rem',
                 fontSize: '0.78rem',
@@ -2052,40 +2363,77 @@ export function StudentMockVivaPage(): JSX.Element {
               {liveMetrics.difficulty}
             </span>
             <span className="status-pill status-info">Sentiment: {liveMetrics.sentiment}</span>
-            <span className="status-pill status-success">
-              Confidence: {liveMetrics.confidence}%
+            <span
+              className="status-pill"
+              style={{
+                background:
+                  liveMetrics.trend === 'improving'
+                    ? 'rgba(22,163,74,0.1)'
+                    : liveMetrics.trend === 'declining'
+                      ? 'rgba(220,38,38,0.1)'
+                      : 'rgba(0,0,0,0.05)',
+                color:
+                  liveMetrics.trend === 'improving'
+                    ? '#16a34a'
+                    : liveMetrics.trend === 'declining'
+                      ? '#dc2626'
+                      : 'var(--text-secondary)',
+              }}
+            >
+              {TREND_ICONS[liveMetrics.trend]} {liveMetrics.trend}
             </span>
           </div>
 
-          <div
-            style={{
-              height: '8px',
-              background: 'var(--border)',
-              borderRadius: '999px',
-              overflow: 'hidden',
-              marginBottom: '0.65rem',
-            }}
-          >
+          {/* Confidence bar */}
+          <div style={{ marginBottom: '0.75rem' }}>
             <div
-              style={{
-                width: `${Math.max(0, Math.min(100, liveMetrics.confidence))}%`,
-                height: '100%',
-                background:
-                  liveMetrics.confidence >= 70
-                    ? '#16a34a'
-                    : liveMetrics.confidence >= 40
-                      ? '#d97706'
-                      : '#dc2626',
-              }}
-            />
+              style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}
+            >
+              <span style={{ fontSize: '0.82rem', fontWeight: 600 }}>Confidence</span>
+              <span
+                style={{
+                  fontSize: '0.82rem',
+                  fontWeight: 700,
+                  color:
+                    liveMetrics.confidence >= 70
+                      ? '#16a34a'
+                      : liveMetrics.confidence >= 40
+                        ? '#d97706'
+                        : '#dc2626',
+                }}
+              >
+                {liveMetrics.confidence}%
+              </span>
+            </div>
+            <div className="metric-bar-track" style={{ height: '8px' }}>
+              <div
+                className="metric-bar-fill"
+                style={{
+                  width: `${Math.max(0, Math.min(100, liveMetrics.confidence))}%`,
+                  background:
+                    liveMetrics.confidence >= 70
+                      ? '#16a34a'
+                      : liveMetrics.confidence >= 40
+                        ? '#d97706'
+                        : '#dc2626',
+                  transition: 'width 0.4s',
+                }}
+              />
+            </div>
           </div>
 
           <p
-            style={{ marginBottom: '0.75rem', fontSize: '0.84rem', color: 'var(--text-secondary)' }}
+            style={{
+              marginBottom: '0.75rem',
+              fontSize: '0.82rem',
+              color: 'var(--text-secondary)',
+              fontStyle: 'italic',
+            }}
           >
             {adaptationMessage(liveMetrics)}
           </p>
 
+          {/* Score dimensions with bars */}
           <div
             style={{
               display: 'grid',
@@ -2094,55 +2442,125 @@ export function StudentMockVivaPage(): JSX.Element {
               marginBottom: '0.6rem',
             }}
           >
-            {(Object.keys(SCORE_LABELS) as Array<keyof TurnScores>).map((scoreKey) => (
-              <div key={scoreKey} className="metric-card" style={{ padding: '0.6rem' }}>
-                <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                  {SCORE_LABELS[scoreKey]}
-                </p>
-                <p style={{ margin: '0.15rem 0 0', fontWeight: 800 }}>
-                  {liveMetrics.scores[scoreKey]}%
-                </p>
-              </div>
-            ))}
+            {(Object.keys(SCORE_LABELS) as Array<keyof TurnScores>).map((scoreKey) => {
+              const val = liveMetrics.scores[scoreKey];
+              return (
+                <div key={scoreKey} className="metric-card" style={{ padding: '0.6rem' }}>
+                  <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                    {SCORE_LABELS[scoreKey]}
+                  </p>
+                  <p style={{ margin: '0.15rem 0 0.3rem', fontWeight: 800, fontSize: '1rem' }}>
+                    {val}%
+                  </p>
+                  <div className="metric-bar-track" style={{ height: '4px' }}>
+                    <div
+                      className="metric-bar-fill"
+                      style={{
+                        width: `${val}%`,
+                        background: val >= 70 ? '#16a34a' : val >= 40 ? '#d97706' : '#dc2626',
+                        transition: 'width 0.3s',
+                      }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
           </div>
 
           {liveMetrics.hesitation_signals.length > 0 ? (
-            <p style={{ marginBottom: 0, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-              Signals: {liveMetrics.hesitation_signals.join(', ')}
-            </p>
+            <div
+              style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap', marginBottom: '0.25rem' }}
+            >
+              <span
+                style={{
+                  fontSize: '0.78rem',
+                  color: 'var(--text-secondary)',
+                  marginRight: '0.2rem',
+                }}
+              >
+                Signals:
+              </span>
+              {liveMetrics.hesitation_signals.map((sig, i) => (
+                <span
+                  key={i}
+                  style={{
+                    display: 'inline-block',
+                    padding: '0.1rem 0.45rem',
+                    borderRadius: '999px',
+                    fontSize: '0.72rem',
+                    background: 'rgba(220,38,38,0.08)',
+                    color: '#dc2626',
+                    fontWeight: 500,
+                  }}
+                >
+                  {sig}
+                </span>
+              ))}
+            </div>
           ) : null}
 
           {metricsHistory.length > 1 ? (
-            <p
+            <div
               style={{
-                marginTop: '0.55rem',
-                marginBottom: 0,
-                fontSize: '0.78rem',
-                color: 'var(--text-secondary)',
+                marginTop: '0.5rem',
+                display: 'flex',
+                gap: '0.35rem',
+                alignItems: 'center',
+                flexWrap: 'wrap',
               }}
             >
-              Session confidence trend:{' '}
-              {metricsHistory.map((entry) => entry.confidence).join(' → ')}
-            </p>
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                Confidence trend:
+              </span>
+              {metricsHistory.map((entry, i) => (
+                <span
+                  key={i}
+                  style={{
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                    color:
+                      entry.confidence >= 70
+                        ? '#16a34a'
+                        : entry.confidence >= 40
+                          ? '#d97706'
+                          : '#dc2626',
+                  }}
+                >
+                  {entry.confidence}%{i < metricsHistory.length - 1 ? ' →' : ''}
+                </span>
+              ))}
+            </div>
           ) : null}
         </article>
       ) : null}
 
       <div className="mock-viva-chat">
-        {messages.map((message, index) => (
-          <div key={`${message.role}-${index}`} className={`chat-bubble ${message.role}`}>
-            <strong>
-              {message.role === 'assistant'
-                ? selectedMode === 'mock_viva'
-                  ? 'Examiner'
-                  : selectedMode === 'argument_defender'
-                    ? 'Reviewer'
-                    : 'Coach'
-                : 'You'}
-            </strong>
-            <p>{message.content}</p>
-          </div>
-        ))}
+        {messages.map((message, index) => {
+          const isAssistant = message.role === 'assistant';
+          const senderLabel = isAssistant
+            ? selectedMode === 'mock_viva'
+              ? 'Examiner'
+              : selectedMode === 'argument_defender'
+                ? 'Reviewer'
+                : 'Coach'
+            : 'You';
+          const initials = isAssistant ? senderLabel.charAt(0) : 'Y';
+          return (
+            <div
+              key={`${message.role}-${index}`}
+              className={`chat-row ${isAssistant ? 'chat-row-left' : 'chat-row-right'}`}
+            >
+              {isAssistant ? <span className="chat-avatar chat-avatar-ai">{initials}</span> : null}
+              <div className={`chat-bubble ${message.role}`}>
+                <span className="chat-sender">{senderLabel}</span>
+                <p>{message.content}</p>
+              </div>
+              {!isAssistant ? (
+                <span className="chat-avatar chat-avatar-user">{initials}</span>
+              ) : null}
+            </div>
+          );
+        })}
       </div>
 
       {sessionId ? (
@@ -2164,7 +2582,7 @@ export function StudentMockVivaPage(): JSX.Element {
                 onClick={toggleListening}
                 disabled={loading}
               >
-                {isListening ? '⏹ Stop Recording' : '🎙 Use Mic'}
+                {isListening ? 'Stop Recording' : 'Use Mic'}
               </button>
             ) : null}
             <button
@@ -2189,75 +2607,266 @@ export function StudentMockVivaPage(): JSX.Element {
 
       {summary ? (
         <article className="placeholder-card viva-summary-card">
-          <h3>Session Summary — {modeLabel}</h3>
-          {summary.learner_profile ? (
-            <p style={{ marginBottom: '0.4rem', color: 'var(--text-secondary)' }}>
-              Learner Profile: {LEARNER_PROFILE_LABELS[summary.learner_profile]}
-            </p>
-          ) : null}
-          <p>
-            Readiness Score:{' '}
-            <strong>
-              {typeof summary.readiness_score === 'number' ? `${summary.readiness_score}%` : 'N/A'}
-            </strong>
-          </p>
-          <p>
-            Weak Areas:{' '}
-            {Array.isArray(summary.weak_topics) ? summary.weak_topics.join(', ') : 'N/A'}
-          </p>
-          <p>{typeof summary.recommendation === 'string' ? summary.recommendation : ''}</p>
-          {typeof summary.turns_completed === 'number' ? (
-            <p style={{ marginTop: '0.25rem', marginBottom: '0.3rem', fontSize: '0.85rem' }}>
-              Turns Completed: <strong>{summary.turns_completed}</strong>
-            </p>
-          ) : null}
-          {typeof summary.progress_delta === 'number' ? (
-            <p style={{ marginTop: '0.25rem', marginBottom: '0.7rem', fontSize: '0.85rem' }}>
-              Progress Delta:{' '}
-              <strong style={{ color: summary.progress_delta >= 0 ? '#16a34a' : '#dc2626' }}>
-                {summary.progress_delta >= 0 ? '+' : ''}
-                {summary.progress_delta}
-              </strong>
-            </p>
-          ) : null}
+          <h3 style={{ marginBottom: '0.2rem' }}>Session Summary</h3>
+          <div
+            style={{
+              display: 'flex',
+              gap: '0.5rem',
+              flexWrap: 'wrap',
+              marginBottom: '1rem',
+              fontSize: '0.82rem',
+              color: 'var(--text-secondary)',
+            }}
+          >
+            <span>{modeLabel}</span>
+            {summary.learner_profile ? (
+              <>
+                <span>·</span>
+                <span>{LEARNER_PROFILE_LABELS[summary.learner_profile]}</span>
+              </>
+            ) : null}
+            {typeof summary.turns_completed === 'number' ? (
+              <>
+                <span>·</span>
+                <span>{summary.turns_completed} turns</span>
+              </>
+            ) : null}
+          </div>
 
-          {summary.dimension_summary?.averages ? (
+          {/* Readiness score hero */}
+          {typeof summary.readiness_score === 'number' ? (
             <div
               style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
-                gap: '0.55rem',
-                marginBottom: '0.75rem',
+                background:
+                  summary.readiness_score >= 70
+                    ? 'rgba(22,163,74,0.06)'
+                    : summary.readiness_score >= 40
+                      ? 'rgba(217,119,6,0.06)'
+                      : 'rgba(220,38,38,0.06)',
+                border: `1px solid ${summary.readiness_score >= 70 ? 'rgba(22,163,74,0.2)' : summary.readiness_score >= 40 ? 'rgba(217,119,6,0.2)' : 'rgba(220,38,38,0.2)'}`,
+                borderRadius: '12px',
+                padding: '1rem 1.25rem',
+                marginBottom: '1rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '1rem',
               }}
             >
-              {(Object.keys(SCORE_LABELS) as Array<keyof TurnScores>).map((scoreKey) => (
-                <div
-                  key={`summary-${scoreKey}`}
-                  className="metric-card"
-                  style={{ padding: '0.6rem' }}
+              <div>
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: '0.82rem',
+                    color: 'var(--text-secondary)',
+                    fontWeight: 600,
+                  }}
                 >
-                  <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                    Avg {SCORE_LABELS[scoreKey]}
-                  </p>
-                  <p style={{ margin: '0.1rem 0 0', fontWeight: 800 }}>
-                    {summary.dimension_summary?.averages[scoreKey] ?? 0}%
-                  </p>
-                  <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                    Δ {summary.dimension_summary?.deltas[scoreKey] ?? 0}
-                  </p>
+                  Readiness Score
+                </p>
+                <p
+                  style={{
+                    margin: '0.1rem 0 0',
+                    fontSize: '2rem',
+                    fontWeight: 800,
+                    color:
+                      summary.readiness_score >= 70
+                        ? '#16a34a'
+                        : summary.readiness_score >= 40
+                          ? '#d97706'
+                          : '#dc2626',
+                    lineHeight: 1,
+                  }}
+                >
+                  {summary.readiness_score}%
+                </p>
+              </div>
+              <div style={{ flex: 1 }}>
+                <div className="metric-bar-track" style={{ height: '10px' }}>
+                  <div
+                    className="metric-bar-fill"
+                    style={{
+                      width: `${summary.readiness_score}%`,
+                      background:
+                        summary.readiness_score >= 70
+                          ? '#16a34a'
+                          : summary.readiness_score >= 40
+                            ? '#d97706'
+                            : '#dc2626',
+                    }}
+                  />
                 </div>
-              ))}
+                {typeof summary.progress_delta === 'number' ? (
+                  <p
+                    style={{
+                      margin: '0.35rem 0 0',
+                      fontSize: '0.82rem',
+                      fontWeight: 600,
+                      color: summary.progress_delta >= 0 ? '#16a34a' : '#dc2626',
+                    }}
+                  >
+                    {summary.progress_delta >= 0 ? '+' : ''}
+                    {summary.progress_delta} since last session
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+
+          {/* Weak areas as pills */}
+          {Array.isArray(summary.weak_topics) && summary.weak_topics.length > 0 ? (
+            <div style={{ marginBottom: '0.75rem' }}>
+              <p
+                style={{
+                  margin: '0 0 0.35rem',
+                  fontSize: '0.82rem',
+                  fontWeight: 600,
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                Areas to Improve
+              </p>
+              <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                {summary.weak_topics.map((topic, i) => (
+                  <span
+                    key={i}
+                    style={{
+                      display: 'inline-block',
+                      padding: '0.2rem 0.6rem',
+                      borderRadius: '999px',
+                      fontSize: '0.78rem',
+                      fontWeight: 500,
+                      background: 'rgba(220,38,38,0.08)',
+                      color: '#b91c1c',
+                    }}
+                  >
+                    {topic}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {/* Recommendation */}
+          {typeof summary.recommendation === 'string' && summary.recommendation ? (
+            <div
+              style={{
+                background: 'rgba(14,124,102,0.05)',
+                border: '1px solid rgba(14,124,102,0.15)',
+                borderRadius: '10px',
+                padding: '0.75rem 1rem',
+                marginBottom: '0.75rem',
+                fontSize: '0.88rem',
+                lineHeight: 1.5,
+                color: 'var(--text)',
+              }}
+            >
+              <p
+                style={{
+                  margin: '0 0 0.15rem',
+                  fontWeight: 600,
+                  fontSize: '0.82rem',
+                  color: 'var(--primary)',
+                }}
+              >
+                Recommendation
+              </p>
+              <p style={{ margin: 0 }}>{summary.recommendation}</p>
+            </div>
+          ) : null}
+
+          {/* Dimension scores with bars */}
+          {summary.dimension_summary?.averages ? (
+            <div style={{ marginBottom: '0.75rem' }}>
+              <p
+                style={{
+                  margin: '0 0 0.45rem',
+                  fontSize: '0.82rem',
+                  fontWeight: 600,
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                Dimension Scores
+              </p>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+                  gap: '0.55rem',
+                }}
+              >
+                {(Object.keys(SCORE_LABELS) as Array<keyof TurnScores>).map((scoreKey) => {
+                  const avg = summary.dimension_summary?.averages[scoreKey] ?? 0;
+                  const delta = summary.dimension_summary?.deltas[scoreKey] ?? 0;
+                  return (
+                    <div
+                      key={`summary-${scoreKey}`}
+                      className="metric-card"
+                      style={{ padding: '0.6rem' }}
+                    >
+                      <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                        {SCORE_LABELS[scoreKey]}
+                      </p>
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'baseline',
+                          gap: '0.35rem',
+                          margin: '0.15rem 0 0.3rem',
+                        }}
+                      >
+                        <span style={{ fontWeight: 800, fontSize: '1rem' }}>{avg}%</span>
+                        {delta !== 0 ? (
+                          <span
+                            style={{
+                              fontSize: '0.75rem',
+                              fontWeight: 600,
+                              color: delta > 0 ? '#16a34a' : '#dc2626',
+                            }}
+                          >
+                            {delta > 0 ? '+' : ''}
+                            {delta}
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="metric-bar-track" style={{ height: '4px' }}>
+                        <div
+                          className="metric-bar-fill"
+                          style={{
+                            width: `${avg}%`,
+                            background: avg >= 70 ? '#16a34a' : avg >= 40 ? '#d97706' : '#dc2626',
+                          }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           ) : null}
 
           {summary.dimension_summary ? (
-            <p style={{ marginTop: '0.25rem', marginBottom: '0.65rem', fontSize: '0.84rem' }}>
-              Best improved:{' '}
-              <strong>{SCORE_LABELS[summary.dimension_summary.best_improved]}</strong>
-              {' · '}
-              Weakest persistent:{' '}
-              <strong>{SCORE_LABELS[summary.dimension_summary.weakest_persistent]}</strong>
-            </p>
+            <div
+              style={{
+                display: 'flex',
+                gap: '1rem',
+                flexWrap: 'wrap',
+                fontSize: '0.84rem',
+                marginBottom: '0.5rem',
+              }}
+            >
+              <span>
+                Best improved:{' '}
+                <strong style={{ color: '#16a34a' }}>
+                  {SCORE_LABELS[summary.dimension_summary.best_improved]}
+                </strong>
+              </span>
+              <span>
+                Needs work:{' '}
+                <strong style={{ color: '#dc2626' }}>
+                  {SCORE_LABELS[summary.dimension_summary.weakest_persistent]}
+                </strong>
+              </span>
+            </div>
           ) : null}
 
           <button
