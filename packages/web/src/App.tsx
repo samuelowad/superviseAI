@@ -7,6 +7,7 @@ import { Link, RouterProvider, useRouter } from './lib/router';
 import { AdminCohortsPage, AdminSettingsPage, AdminUsersPage } from './pages/admin/AdminPages';
 import {
   ProfessorAnalyticsPage,
+  ProfessorCohortsPage,
   ProfessorDashboardPage,
   ProfessorMilestonesPage,
   ProfessorStudentDetailPage,
@@ -102,6 +103,10 @@ function renderProfessorRoute(path: string): JSX.Element {
 
   if (subPath === '/analytics') {
     return <ProfessorAnalyticsPage />;
+  }
+
+  if (subPath === '/cohorts') {
+    return <ProfessorCohortsPage />;
   }
 
   return <NotFoundPage />;
@@ -208,6 +213,7 @@ function AppContent(): JSX.Element {
         navItems={[
           { to: '/professor', label: 'Dashboard' },
           { to: '/professor/students', label: 'Students' },
+          { to: '/professor/cohorts', label: 'Cohorts' },
           { to: '/professor/milestones', label: 'Milestones' },
           { to: '/professor/analytics', label: 'Analytics' },
         ]}

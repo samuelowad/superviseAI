@@ -148,6 +148,83 @@ interface SpeechRecognitionLike {
   stop: () => void;
 }
 
+interface SubmissionDetail {
+  id: string;
+  version_number: number;
+  status: string;
+  created_at: string;
+  analysis?: {
+    progress_score: number;
+    key_gaps: string[];
+  } | null;
+  citations?: {
+    health_score: number;
+    issues_count: number;
+  } | null;
+  plagiarism?: {
+    similarity_percent: number;
+    risk_level: 'green' | 'yellow' | 'red';
+  } | null;
+}
+
+function wordDiff(a: string, b: string): Array<{ text: string; type: 'equal' | 'remove' | 'add' }> {
+  const tokA = a.split(/(\s+)/);
+  const tokB = b.split(/(\s+)/);
+  const m = tokA.length;
+  const n = tokB.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array<number>(n + 1).fill(0));
+  for (let i = m - 1; i >= 0; i--) {
+    for (let j = n - 1; j >= 0; j--) {
+      dp[i][j] = tokA[i] === tokB[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+  const result: Array<{ text: string; type: 'equal' | 'remove' | 'add' }> = [];
+  let i = 0;
+  let j = 0;
+  while (i < m || j < n) {
+    if (i < m && j < n && tokA[i] === tokB[j]) {
+      result.push({ text: tokA[i], type: 'equal' });
+      i++;
+      j++;
+    } else if (j < n && (i >= m || dp[i][j + 1] >= dp[i + 1][j])) {
+      result.push({ text: tokB[j], type: 'add' });
+      j++;
+    } else {
+      result.push({ text: tokA[i], type: 'remove' });
+      i++;
+    }
+  }
+  return result;
+}
+
+function renderWordDiff(text: string, counterText: string, side: 'left' | 'right'): JSX.Element {
+  const segments = wordDiff(text, counterText);
+  return (
+    <pre className="pr-line-text">
+      {segments.map((seg, idx) => {
+        if (side === 'left' && seg.type === 'remove') {
+          return (
+            <mark key={idx} style={{ background: 'rgba(185,28,28,0.25)', borderRadius: '2px' }}>
+              {seg.text}
+            </mark>
+          );
+        }
+        if (side === 'right' && seg.type === 'add') {
+          return (
+            <mark key={idx} style={{ background: 'rgba(21,128,61,0.25)', borderRadius: '2px' }}>
+              {seg.text}
+            </mark>
+          );
+        }
+        if (seg.type === 'equal') {
+          return <span key={idx}>{seg.text}</span>;
+        }
+        return null;
+      })}
+    </pre>
+  );
+}
+
 function statusTone(status: string): 'info' | 'success' | 'warning' {
   if (status === 'Completed') {
     return 'success';
@@ -569,9 +646,17 @@ function CentralPanel({ workspace }: { workspace: WorkspaceResponse }): JSX.Elem
                       role="row"
                     >
                       <span className="pr-line-no">{row.left_line ?? ''}</span>
-                      <pre className="pr-line-text">{row.left_text || ' '}</pre>
+                      {row.type === 'removal' ? (
+                        renderWordDiff(row.left_text || ' ', row.right_text || ' ', 'left')
+                      ) : (
+                        <pre className="pr-line-text">{row.left_text || ' '}</pre>
+                      )}
                       <span className="pr-line-no">{row.right_line ?? ''}</span>
-                      <pre className="pr-line-text">{row.right_text || ' '}</pre>
+                      {row.type === 'addition' ? (
+                        renderWordDiff(row.left_text || ' ', row.right_text || ' ', 'right')
+                      ) : (
+                        <pre className="pr-line-text">{row.right_text || ' '}</pre>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1187,13 +1272,202 @@ export function StudentSubmissionsPage(): JSX.Element {
 }
 
 export function StudentHistoryPage(): JSX.Element {
+  const [workspace, setWorkspace] = useState<WorkspaceResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [submissionDetails, setSubmissionDetails] = useState<Record<string, SubmissionDetail>>({});
+  const [detailLoading, setDetailLoading] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    let active = true;
+    const load = async (): Promise<void> => {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await apiRequest<WorkspaceResponse>('/theses/me/workspace');
+        if (active) setWorkspace(data);
+      } catch (err) {
+        if (active) setError(err instanceof Error ? err.message : 'Failed to load history.');
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+    void load();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handleExpand = async (subId: string): Promise<void> => {
+    if (expandedId === subId) {
+      setExpandedId(null);
+      return;
+    }
+    setExpandedId(subId);
+    if (!submissionDetails[subId]) {
+      setDetailLoading((prev) => ({ ...prev, [subId]: true }));
+      try {
+        const detail = await apiRequest<SubmissionDetail>(`/submissions/${subId}`);
+        setSubmissionDetails((prev) => ({ ...prev, [subId]: detail }));
+      } catch {
+        // leave as empty if error
+      } finally {
+        setDetailLoading((prev) => ({ ...prev, [subId]: false }));
+      }
+    }
+  };
+
+  if (loading) {
+    return (
+      <section className="placeholder-card">
+        <h2>History</h2>
+        <div className="spinner" role="status" aria-label="Loading history" />
+      </section>
+    );
+  }
+
+  if (error) {
+    return (
+      <section className="placeholder-card">
+        <h2>History</h2>
+        <p style={{ color: 'var(--danger, #dc2626)' }}>{error}</p>
+      </section>
+    );
+  }
+
+  const submissions = workspace?.submissions ?? [];
+
+  if (!workspace?.thesis || submissions.length === 0) {
+    return (
+      <section className="placeholder-card">
+        <h2>History</h2>
+        <p>No submissions yet. Upload your first draft from the workspace.</p>
+      </section>
+    );
+  }
+
   return (
     <section className="placeholder-card">
-      <h2>History</h2>
-      <p>
-        Version timeline and rich diff history are tracked through the Thesis Workspace submission
-        stream.
+      <h2>Submission History</h2>
+      <p
+        style={{
+          marginBottom: '1.25rem',
+          color: 'var(--text-secondary, #666)',
+          fontSize: '0.9rem',
+        }}
+      >
+        {workspace.thesis.title}
       </p>
+      <div className="history-timeline">
+        {[...submissions].reverse().map((sub) => {
+          const isExpanded = expandedId === sub.id;
+          const detail = submissionDetails[sub.id];
+          const isDetailLoading = detailLoading[sub.id];
+
+          return (
+            <article key={sub.id} className="history-entry">
+              <div className="history-entry-header">
+                <span
+                  className="version-badge"
+                  style={{
+                    fontFamily: 'monospace',
+                    fontWeight: 800,
+                    color: 'var(--primary)',
+                    border: '1px solid var(--primary)',
+                    borderRadius: '6px',
+                    padding: '0.2rem 0.5rem',
+                    fontSize: '0.85rem',
+                  }}
+                >
+                  V{sub.version_number}
+                </span>
+                <span
+                  style={{ flex: 1, fontSize: '0.85rem', color: 'var(--text-secondary, #666)' }}
+                >
+                  {formatDate(sub.created_at)}
+                </span>
+                <span className={`status-pill status-${statusTone(sub.status)}`}>{sub.status}</span>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{ fontSize: '0.82rem' }}
+                  onClick={() => {
+                    void handleExpand(sub.id);
+                  }}
+                >
+                  {isExpanded ? 'Hide ▲' : 'View Analysis ▼'}
+                </button>
+              </div>
+
+              {isExpanded && (
+                <div
+                  style={{
+                    marginTop: '1rem',
+                    borderTop: '1px solid var(--border)',
+                    paddingTop: '1rem',
+                  }}
+                >
+                  {isDetailLoading ? (
+                    <div className="spinner" role="status" aria-label="Loading analysis" />
+                  ) : detail ? (
+                    <div
+                      className="workspace-metrics-grid"
+                      style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))' }}
+                    >
+                      {detail.analysis != null && (
+                        <article className="metric-card">
+                          <h3>Progress</h3>
+                          <p className="metric-value">{detail.analysis.progress_score}%</p>
+                        </article>
+                      )}
+                      {detail.citations != null && (
+                        <article className="metric-card">
+                          <h3>Citation Health</h3>
+                          <p className="metric-value">{detail.citations.health_score}%</p>
+                          <p>
+                            {detail.citations.issues_count} issue
+                            {detail.citations.issues_count !== 1 ? 's' : ''}
+                          </p>
+                        </article>
+                      )}
+                      {detail.plagiarism != null && (
+                        <article className="metric-card">
+                          <h3>Plagiarism</h3>
+                          <p className="metric-value">{detail.plagiarism.similarity_percent}%</p>
+                          {detail.plagiarism.risk_level ? (
+                            <p>{detail.plagiarism.risk_level.toUpperCase()}</p>
+                          ) : null}
+                        </article>
+                      )}
+                      {detail.analysis?.key_gaps && detail.analysis.key_gaps.length > 0 && (
+                        <article className="metric-card" style={{ gridColumn: 'span 2' }}>
+                          <h3>Key Gaps</h3>
+                          <ul style={{ margin: 0, paddingLeft: '1rem', fontSize: '0.82rem' }}>
+                            {detail.analysis.key_gaps.map((gap, idx) => (
+                              <li key={idx}>{gap}</li>
+                            ))}
+                          </ul>
+                        </article>
+                      )}
+                    </div>
+                  ) : (
+                    <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary, #666)' }}>
+                      Analysis not available for this submission.
+                    </p>
+                  )}
+                </div>
+              )}
+            </article>
+          );
+        })}
+      </div>
+
+      <style>{`
+        .history-timeline { display: grid; gap: 0.75rem; }
+        .history-entry { border: 1px solid var(--border); border-radius: 12px; background: white; padding: 1rem; }
+        .history-entry-header { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+      `}</style>
     </section>
   );
 }
