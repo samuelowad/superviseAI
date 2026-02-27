@@ -138,6 +138,13 @@ interface CreateThesisInput {
   supervisorId?: string;
 }
 
+interface ParsedAbstractResponse {
+  text: string;
+  file_name: string;
+  truncated: boolean;
+  original_length: number;
+}
+
 interface SpeechRecognitionLike {
   continuous: boolean;
   interimResults: boolean;
@@ -1018,22 +1025,57 @@ function ProposalForm({
   }, [supervisorId, supervisorQuery]);
 
   async function readAbstractFile(file: File): Promise<void> {
-    if (file.size > 2 * 1024 * 1024) {
-      setError('Abstract file must be 2MB or less.');
+    if (file.size > 20 * 1024 * 1024) {
+      setError('Abstract/proposal file must be 20MB or less.');
       return;
     }
 
-    const rawText = await file.text();
-    const cleanedText = rawText.replace(/\s+/g, ' ').trim();
-    if (cleanedText.length < 40) {
-      setError('Uploaded abstract content is too short. Use at least 40 characters.');
+    const token = getAccessToken();
+    if (!token) {
+      setError('Please sign in again and retry.');
       return;
     }
 
-    setAbstractValue(cleanedText.slice(0, 4000));
-    setAbstractFileName(file.name);
-    setAbstractSource('upload');
-    setError(null);
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const response = await fetch(`${API_BASE}/theses/abstract/parse`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
+      });
+
+      let payload: ParsedAbstractResponse | { message?: string } = { message: '' };
+      try {
+        payload = (await response.json()) as ParsedAbstractResponse | { message?: string };
+      } catch {
+        payload = { message: 'Failed to parse uploaded file.' };
+      }
+
+      if (!response.ok) {
+        const msg =
+          typeof payload === 'object' && payload && 'message' in payload
+            ? (payload.message ?? 'Failed to parse file.')
+            : 'Failed to parse file.';
+        setError(msg);
+        return;
+      }
+
+      const parsed = payload as ParsedAbstractResponse;
+      setAbstractValue(parsed.text);
+      setAbstractFileName(
+        parsed.truncated
+          ? `${parsed.file_name || file.name} (truncated to 30,000 chars)`
+          : parsed.file_name || file.name,
+      );
+      setAbstractSource('upload');
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to parse uploaded file.');
+    }
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
@@ -1101,7 +1143,7 @@ function ProposalForm({
             <div className="abstract-upload-field">
               <input
                 type="file"
-                accept=".txt,.md,text/plain,text/markdown"
+                accept=".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown"
                 onChange={(event) => {
                   const selected = event.target.files?.[0];
                   if (selected) {
@@ -1110,7 +1152,9 @@ function ProposalForm({
                 }}
               />
               <small>
-                {abstractFileName ? `Loaded: ${abstractFileName}` : 'Accepted: .txt, .md'}
+                {abstractFileName
+                  ? `Loaded: ${abstractFileName}`
+                  : 'Accepted: .pdf, .docx, .txt, .md (up to 20MB)'}
               </small>
             </div>
           )}

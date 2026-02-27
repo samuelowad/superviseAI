@@ -45,6 +45,13 @@ interface ProfessorAiReviewSummary {
   stage_context: string | null;
 }
 
+interface UploadedProposalFile {
+  originalname: string;
+  mimetype: string;
+  size: number;
+  buffer: Buffer;
+}
+
 @Injectable()
 export class ThesesService {
   constructor(
@@ -101,6 +108,32 @@ export class ThesesService {
     }
 
     return { thesis: savedThesis };
+  }
+
+  async parseAbstractFile(
+    file: UploadedProposalFile,
+  ): Promise<{ text: string; file_name: string; truncated: boolean; original_length: number }> {
+    this.validateAbstractFile(file);
+
+    const extracted = await this.extractAbstractText(file);
+    const normalized = extracted.replace(/\s+/g, ' ').trim();
+
+    if (normalized.length < 40) {
+      throw new BadRequestException(
+        'Uploaded file did not contain enough readable text for an abstract (minimum 40 characters).',
+      );
+    }
+
+    const max = 30000;
+    const truncated = normalized.length > max;
+    const text = truncated ? normalized.slice(0, max) : normalized;
+
+    return {
+      text,
+      file_name: file.originalname,
+      truncated,
+      original_length: normalized.length,
+    };
   }
 
   async searchProfessors(query: string): Promise<{ professors: Array<Record<string, string>> }> {
@@ -1115,9 +1148,7 @@ export class ThesesService {
     };
   }
 
-  private async resolveActiveMilestoneForThesis(
-    thesis: Thesis,
-  ): Promise<{
+  private async resolveActiveMilestoneForThesis(thesis: Thesis): Promise<{
     id: string;
     title: string;
     stage: string;
@@ -1178,6 +1209,104 @@ export class ThesesService {
     };
 
     return labels[status];
+  }
+
+  private validateAbstractFile(file: UploadedProposalFile): void {
+    if (file.size > 20 * 1024 * 1024) {
+      throw new BadRequestException('Abstract/proposal file must be 20MB or less.');
+    }
+
+    const acceptedMimeTypes = new Set([
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'text/plain',
+      'text/markdown',
+    ]);
+
+    if (acceptedMimeTypes.has(file.mimetype)) {
+      return;
+    }
+
+    const name = file.originalname.toLowerCase();
+    if (
+      name.endsWith('.pdf') ||
+      name.endsWith('.docx') ||
+      name.endsWith('.txt') ||
+      name.endsWith('.md')
+    ) {
+      return;
+    }
+
+    throw new BadRequestException('Only PDF, DOCX, TXT, and MD files are supported.');
+  }
+
+  private async extractAbstractText(file: UploadedProposalFile): Promise<string> {
+    if (file.mimetype === 'application/pdf' || file.originalname.toLowerCase().endsWith('.pdf')) {
+      const parsed = await this.extractPdfText(file.buffer);
+      if (parsed) return parsed;
+      throw new BadRequestException(
+        'Could not extract readable text from this PDF. Please upload TXT/MD or try another PDF.',
+      );
+    }
+
+    if (
+      file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+      file.originalname.toLowerCase().endsWith('.docx')
+    ) {
+      const parsed = await this.extractDocxText(file.buffer);
+      if (parsed) return parsed;
+      throw new BadRequestException(
+        'Could not extract readable text from this DOCX. Please upload TXT/MD or try another DOCX.',
+      );
+    }
+
+    const text = file.buffer.toString('utf8');
+    if (this.isLikelyBinaryText(text)) {
+      throw new BadRequestException(
+        'Uploaded file appears to be binary/non-text. Please use PDF, DOCX, TXT, or MD.',
+      );
+    }
+    return text;
+  }
+
+  private async extractPdfText(buffer: Buffer): Promise<string | null> {
+    try {
+      const pdfParse: (input: Buffer) => Promise<{ text?: string }> = runtimeRequire('pdf-parse');
+      const parsed = await pdfParse(buffer);
+      return parsed.text?.trim() || null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async extractDocxText(buffer: Buffer): Promise<string | null> {
+    try {
+      const mammoth: {
+        extractRawText: (input: { buffer: Buffer }) => Promise<{ value?: string }>;
+      } = runtimeRequire('mammoth');
+      const parsed = await mammoth.extractRawText({ buffer });
+      return parsed.value?.trim() || null;
+    } catch {
+      return null;
+    }
+  }
+
+  private isLikelyBinaryText(text: string): boolean {
+    if (!text || text.length < 100) {
+      return false;
+    }
+
+    let nonPrintable = 0;
+    for (let i = 0; i < text.length; i += 1) {
+      const code = text.charCodeAt(i);
+      const isPrintableAscii =
+        code === 9 || code === 10 || code === 13 || (code >= 32 && code <= 126);
+      if (!isPrintableAscii) {
+        nonPrintable += 1;
+      }
+    }
+
+    return nonPrintable / text.length > 0.22;
   }
 
   private getStatusLabel(status: ThesisStatus): string {
