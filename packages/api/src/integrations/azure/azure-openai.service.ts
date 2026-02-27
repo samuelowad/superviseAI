@@ -525,6 +525,134 @@ Return ONLY valid JSON with integer scores 0-100 for each dimension:
     }
   }
 
+  async summarizeProfessorReview(opts: {
+    thesisTitle: string;
+    abstract: string | null;
+    previousText: string | null;
+    currentText: string | null;
+    milestoneStage?: string | null;
+    progressScore: number;
+    trendDelta: number;
+    citationHealthScore: number;
+    similarityPercent: number;
+    additions: number;
+    deletions: number;
+    majorEdits: number;
+    abstractAlignmentVerdict: string | null;
+    keyTopicCoverage: string[];
+    missingCoreSections: string[];
+  }): Promise<{
+    status_note: string;
+    change_summary: string;
+    recommended_feedback: string[];
+  } | null> {
+    if (!this.client) return null;
+
+    const currentCtx = this.retrieveThesisContext(opts.currentText ?? '', {
+      query:
+        'thesis claims methods evidence findings limitations contribution conclusion references',
+      maxChunks: 4,
+      chunkSize: 1800,
+      overlap: 250,
+      maxChars: 8000,
+      ensureCoverage: true,
+    });
+    const previousCtx = this.retrieveThesisContext(opts.previousText ?? '', {
+      query: 'previous thesis draft methods findings limitations',
+      maxChunks: 3,
+      chunkSize: 1800,
+      overlap: 250,
+      maxChars: 5500,
+      ensureCoverage: true,
+    });
+
+    const prompt = `You are an academic supervision copilot helping a professor review a student's thesis revision.
+
+Thesis title: ${opts.thesisTitle}
+Milestone stage: ${opts.milestoneStage ?? 'not specified'}
+Abstract alignment verdict: ${opts.abstractAlignmentVerdict ?? 'insufficient_data'}
+Key topics covered: ${opts.keyTopicCoverage.join(', ') || 'none'}
+Missing core sections: ${opts.missingCoreSections.join(', ') || 'none'}
+
+Latest metrics:
+- Progress score: ${opts.progressScore}
+- Trend delta: ${opts.trendDelta}
+- Citation health score: ${opts.citationHealthScore}
+- Plagiarism similarity: ${opts.similarityPercent}
+- Changes: +${opts.additions}, -${opts.deletions}, major edits ${opts.majorEdits}
+
+Current version context:
+${currentCtx.context}
+
+Previous version context:
+${previousCtx.context}
+
+Return ONLY valid JSON with this exact shape:
+{
+  "status_note": "<one concise sentence for dashboard row; <= 20 words>",
+  "change_summary": "<3-5 sentences describing what changed and what quality/risk signals matter most>",
+  "recommended_feedback": [
+    "<specific actionable professor feedback item 1>",
+    "<specific actionable professor feedback item 2>",
+    "<specific actionable professor feedback item 3>"
+  ]
+}
+
+Rules:
+- Feedback must be specific and actionable.
+- Mention milestone-stage fit when possible.
+- Do not repeat generic advice.
+- Keep tone professional and concise.`;
+
+    const raw = await this.chat(
+      [
+        {
+          role: 'system',
+          content:
+            'You are a strict academic review assistant. Return only valid JSON and follow requested schema exactly.',
+        },
+        { role: 'user', content: prompt },
+      ],
+      900,
+    );
+
+    if (!raw) return null;
+
+    try {
+      const parsed = JSON.parse(this.cleanJson(raw)) as {
+        status_note?: unknown;
+        change_summary?: unknown;
+        recommended_feedback?: unknown;
+      };
+      const status_note =
+        typeof parsed.status_note === 'string' && parsed.status_note.trim().length > 0
+          ? parsed.status_note.trim()
+          : '';
+      const change_summary =
+        typeof parsed.change_summary === 'string' && parsed.change_summary.trim().length > 0
+          ? parsed.change_summary.trim()
+          : '';
+      const recommended_feedback = Array.isArray(parsed.recommended_feedback)
+        ? parsed.recommended_feedback
+            .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+            .map((item) => item.trim())
+            .slice(0, 5)
+        : [];
+
+      if (!status_note || !change_summary || recommended_feedback.length === 0) {
+        return null;
+      }
+
+      return {
+        status_note,
+        change_summary,
+        recommended_feedback,
+      };
+    } catch {
+      return null;
+    }
+  }
+
   private retrieveThesisContext(
     text: string,
     opts: {

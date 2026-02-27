@@ -24,8 +24,10 @@ interface ProfessorStudentRow {
   student_email: string | null;
   progress_score: number;
   trend_delta: number;
+  abstract_alignment_verdict: string;
   plagiarism_similarity: number;
   last_submission_at: string | null;
+  ai_status_note: string;
   risk_level: 'green' | 'yellow' | 'red';
   risk_reasons: string[];
 }
@@ -143,6 +145,18 @@ interface ProfessorStudentDetailResponse {
     plagiarism_similarity: number;
     readiness_score: number | null;
   };
+  abstract_alignment: {
+    verdict: string;
+    key_topic_coverage: string[];
+    missing_core_sections: string[];
+    structural_readiness: string;
+  };
+  ai_review: {
+    status_note: string;
+    change_summary: string;
+    recommended_feedback: string[];
+    stage_context: string | null;
+  } | null;
   reports: {
     citations: {
       issues_count: number;
@@ -798,6 +812,14 @@ export function ProfessorDashboardPage(): JSX.Element {
                     }}
                   >
                     {student.thesis_title}
+                    <br />
+                    <small style={{ color: 'var(--text-secondary)' }}>
+                      Alignment: {student.abstract_alignment_verdict.replace(/_/g, ' ')}
+                    </small>
+                    <br />
+                    <small style={{ color: 'var(--text-secondary)' }}>
+                      {student.ai_status_note}
+                    </small>
                   </td>
                   <td>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
@@ -967,6 +989,14 @@ export function ProfessorStudentsPage(): JSX.Element {
                     }}
                   >
                     {student.thesis_title}
+                    <br />
+                    <small style={{ color: 'var(--text-secondary)' }}>
+                      Alignment: {student.abstract_alignment_verdict.replace(/_/g, ' ')}
+                    </small>
+                    <br />
+                    <small style={{ color: 'var(--text-secondary)' }}>
+                      {student.ai_status_note}
+                    </small>
                   </td>
                   <td>
                     <span className={`status-pill ${statusTone(student.thesis_status_label)}`}>
@@ -2037,6 +2067,72 @@ export function ProfessorStudentDetailPage({ thesisId }: { thesisId: string }): 
           ) : null}
           <p>Latest coaching readiness</p>
         </article>
+      </section>
+
+      <section className="placeholder-card">
+        <h2>AI Review Summary</h2>
+        {detail.ai_review ? (
+          <>
+            <p style={{ marginBottom: '0.5rem' }}>
+              <strong>Status Note:</strong> {detail.ai_review.status_note}
+            </p>
+            {detail.ai_review.stage_context ? (
+              <p style={{ marginBottom: '0.5rem' }}>
+                <strong>Milestone Context:</strong> {detail.ai_review.stage_context}
+              </p>
+            ) : null}
+            <p style={{ marginBottom: '0.75rem' }}>{detail.ai_review.change_summary}</p>
+            <h3 style={{ marginBottom: '0.4rem' }}>Suggested Feedback</h3>
+            <ul style={{ marginTop: 0 }}>
+              {detail.ai_review.recommended_feedback.map((item, index) => (
+                <li key={`${index}-${item}`}>
+                  {item}{' '}
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    style={{ marginLeft: '0.5rem' }}
+                    onClick={() =>
+                      setFeedback((prev) =>
+                        prev.trim().length ? `${prev}\n- ${item}` : `- ${item}`,
+                      )
+                    }
+                  >
+                    Use
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : (
+          <p>AI summary is unavailable for this submission.</p>
+        )}
+
+        <h3 style={{ marginTop: '1rem', marginBottom: '0.4rem' }}>Abstract Alignment</h3>
+        <p>
+          <strong>Verdict:</strong>{' '}
+          <span className="status-pill info">
+            {detail.abstract_alignment.verdict.replace(/_/g, ' ')}
+          </span>
+        </p>
+        <p>
+          <strong>Structural Readiness:</strong> {detail.abstract_alignment.structural_readiness}
+        </p>
+        {detail.abstract_alignment.key_topic_coverage.length > 0 ? (
+          <p>
+            <strong>Covered Topics:</strong>{' '}
+            {detail.abstract_alignment.key_topic_coverage.join(', ')}
+          </p>
+        ) : null}
+        {detail.abstract_alignment.missing_core_sections.length > 0 ? (
+          <p>
+            <strong>Missing Core Sections:</strong>{' '}
+            {detail.abstract_alignment.missing_core_sections.join(', ')}
+          </p>
+        ) : (
+          <p>
+            <strong>Missing Core Sections:</strong> none detected
+          </p>
+        )}
       </section>
 
       <section className="placeholder-card">
