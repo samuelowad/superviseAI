@@ -2865,6 +2865,49 @@ export function StudentMockVivaPage(): JSX.Element {
             </div>
           );
         })}
+
+        {/* Recording waveform indicator */}
+        {isListening ? (
+          <div className="chat-row chat-row-right">
+            <div className="viva-recording-indicator">
+              <span className="viva-rec-dot" />
+              <span className="viva-recording-label">Recording</span>
+              <div className="viva-waveform">
+                <span className="viva-wave-bar" style={{ animationDelay: '0s' }} />
+                <span className="viva-wave-bar" style={{ animationDelay: '0.12s' }} />
+                <span className="viva-wave-bar" style={{ animationDelay: '0.24s' }} />
+                <span className="viva-wave-bar" style={{ animationDelay: '0.36s' }} />
+                <span className="viva-wave-bar" style={{ animationDelay: '0.48s' }} />
+                <span className="viva-wave-bar" style={{ animationDelay: '0.18s' }} />
+                <span className="viva-wave-bar" style={{ animationDelay: '0.06s' }} />
+                <span className="viva-wave-bar" style={{ animationDelay: '0.3s' }} />
+                <span className="viva-wave-bar" style={{ animationDelay: '0.42s' }} />
+              </div>
+            </div>
+            <span className="chat-avatar chat-avatar-user">Y</span>
+          </div>
+        ) : null}
+
+        {/* AI thinking indicator */}
+        {loading ? (
+          <div className="chat-row chat-row-left">
+            <span className="chat-avatar chat-avatar-ai">
+              {selectedMode === 'mock_viva'
+                ? 'E'
+                : selectedMode === 'argument_defender'
+                  ? 'R'
+                  : 'C'}
+            </span>
+            <div className="chat-bubble assistant viva-thinking-bubble">
+              <div className="viva-thinking-dots">
+                <span />
+                <span />
+                <span />
+              </div>
+              <span className="viva-thinking-label">Thinking...</span>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {sessionId ? (
